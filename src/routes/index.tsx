@@ -68,14 +68,22 @@ type ChannelProfile = {
 type SavedScript = {
   id: string
   title: string
+  selectedTitle: string
   date: string
+  createdAt: string
+  updatedAt: string
   profile: string
   niche: string
+  tone: string
   type: string
   status: string
   favorite: boolean
+  outlineSections: Array<{ heading: string; content: string }>
+  fullScriptBody: string
   script: string
 }
+
+type ScriptDetailView = 'title' | 'outline' | 'full'
 
 type OnboardingState = {
   channelName: string
@@ -243,6 +251,66 @@ const FAQ = [
 
 const getPrimaryNiche = (onboarding: OnboardingState) => onboarding.customNiche || onboarding.niche || 'General'
 const getPrimaryTone = (onboarding: OnboardingState) => onboarding.customTone || onboarding.tone || 'Conversational'
+const LEGACY_ONBOARDING_KEY = 'scriptr:onboarding'
+const LEGACY_SCRIPTS_KEY = 'scriptr:scripts'
+const LEGACY_ONBOARDING_COMPLETE_KEY = 'scriptr:onboarding-complete'
+
+const getUserStorageKey = (prefix: string, email?: string) => {
+  const normalized = (email || 'guest').trim().toLowerCase()
+  return `${prefix}:${encodeURIComponent(normalized)}`
+}
+
+const readLocalJson = <T,>(keys: string[]) => {
+  for (const key of keys) {
+    const value = localStorage.getItem(key)
+    if (!value) {
+      continue
+    }
+
+    try {
+      return JSON.parse(value) as T
+    } catch {
+      continue
+    }
+  }
+
+  return null
+}
+
+const parseIsoDate = (value: string | undefined) => {
+  if (!value) {
+    return null
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+const normalizeSavedScript = (entry: Partial<SavedScript>): SavedScript => {
+  const createdAt = entry.createdAt || new Date().toISOString()
+  const createdDate = parseIsoDate(createdAt) || new Date()
+  const title = entry.title || 'Untitled Script'
+  const outlineSections = Array.isArray(entry.outlineSections) ? entry.outlineSections : []
+  const fullScriptBody = entry.fullScriptBody || entry.script || 'No script content yet.'
+
+  return {
+    id: entry.id || `sc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title,
+    selectedTitle: entry.selectedTitle || title,
+    date:
+      entry.date || createdDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    createdAt,
+    updatedAt: entry.updatedAt || createdAt,
+    profile: entry.profile || 'Unknown Profile',
+    niche: entry.niche || 'General',
+    tone: entry.tone || 'Conversational',
+    type: entry.type || 'Long-form faceless videos',
+    status: entry.status || 'Draft',
+    favorite: Boolean(entry.favorite),
+    outlineSections,
+    fullScriptBody,
+    script: entry.script || fullScriptBody,
+  }
+}
 
 const buildPrimaryProfile = (onboarding: OnboardingState): ChannelProfile => ({
   id: 'cp-primary',
@@ -313,6 +381,8 @@ function Home() {
   const [onboarding, setOnboarding] = useState<OnboardingState>(ONBOARDING_DEFAULTS)
   const [scripts, setScripts] = useState<SavedScript[]>(INITIAL_SCRIPTS)
   const [selectedScriptId, setSelectedScriptId] = useState('')
+  const [scriptDetailView, setScriptDetailView] = useState<ScriptDetailView>('title')
+  const [accountHydrated, setAccountHydrated] = useState(false)
 
   const [channelContext, setChannelContext] = useState<ChannelContext>({
     channelProfile: '',
@@ -353,34 +423,41 @@ function Home() {
 
   const primaryProfile = useMemo(() => buildPrimaryProfile(onboarding), [onboarding])
   const profiles = useMemo(() => [primaryProfile], [primaryProfile])
+  const storageKeys = useMemo(
+    () => ({
+      onboarding: getUserStorageKey('scriptr:onboarding', authUser?.email),
+      scripts: getUserStorageKey('scriptr:scripts', authUser?.email),
+      onboardingComplete: getUserStorageKey('scriptr:onboarding-complete', authUser?.email),
+    }),
+    [authUser?.email],
+  )
+  const hydrateAccountData = (email?: string) => {
+    const onboardingKey = getUserStorageKey('scriptr:onboarding', email)
+    const scriptsKey = getUserStorageKey('scriptr:scripts', email)
+
+    const storedOnboarding = readLocalJson<OnboardingState>(
+      email ? [onboardingKey, LEGACY_ONBOARDING_KEY] : [onboardingKey],
+    )
+    if (storedOnboarding) {
+      setOnboarding(storedOnboarding)
+    } else {
+      setOnboarding(ONBOARDING_DEFAULTS)
+    }
+
+    const storedScripts = readLocalJson<Array<Partial<SavedScript>>>(email ? [scriptsKey, LEGACY_SCRIPTS_KEY] : [scriptsKey])
+    if (Array.isArray(storedScripts)) {
+      const normalized = storedScripts.map((item) => normalizeSavedScript(item))
+      setScripts(normalized)
+      setSelectedScriptId(normalized[0]?.id || '')
+      return
+    }
+
+    setScripts(INITIAL_SCRIPTS)
+    setSelectedScriptId('')
+  }
 
   useEffect(() => {
     const restoreSession = async () => {
-      const storedOnboarding = localStorage.getItem('scriptr:onboarding')
-      const storedScripts = localStorage.getItem('scriptr:scripts')
-      const done = localStorage.getItem('scriptr:onboarding-complete')
-
-      if (storedOnboarding) {
-        try {
-          const parsed = JSON.parse(storedOnboarding) as OnboardingState
-          setOnboarding(parsed)
-        } catch {
-          localStorage.removeItem('scriptr:onboarding')
-        }
-      }
-
-      if (storedScripts) {
-        try {
-          const parsed = JSON.parse(storedScripts) as SavedScript[]
-          if (Array.isArray(parsed)) {
-            setScripts(parsed)
-            setSelectedScriptId(parsed[0]?.id || '')
-          }
-        } catch {
-          localStorage.removeItem('scriptr:scripts')
-        }
-      }
-
       try {
         const callback = await handleAuthCallback()
         if (callback?.user) {
@@ -390,6 +467,11 @@ function Home() {
             callback.user.email?.split('@')[0] ||
             'Creator'
           setAuthUser({ name: userName, email: callback.user.email })
+          hydrateAccountData(callback.user.email)
+          setAccountHydrated(true)
+          const done =
+            localStorage.getItem(getUserStorageKey('scriptr:onboarding-complete', callback.user.email)) ||
+            localStorage.getItem(LEGACY_ONBOARDING_COMPLETE_KEY)
           setScreen(done ? 'app' : 'onboarding')
           return
         }
@@ -401,16 +483,30 @@ function Home() {
       if (user) {
         const userName = user.userMetadata?.full_name || user.name || user.email?.split('@')[0] || 'Creator'
         setAuthUser({ name: userName, email: user.email })
+        hydrateAccountData(user.email)
+        setAccountHydrated(true)
+        const done =
+          localStorage.getItem(getUserStorageKey('scriptr:onboarding-complete', user.email)) ||
+          localStorage.getItem(LEGACY_ONBOARDING_COMPLETE_KEY)
         setScreen(done ? 'app' : 'onboarding')
+        return
       }
+
+      setOnboarding(ONBOARDING_DEFAULTS)
+      setScripts(INITIAL_SCRIPTS)
+      setSelectedScriptId('')
+      setAccountHydrated(false)
     }
 
     restoreSession()
   }, [])
 
   useEffect(() => {
-    localStorage.setItem('scriptr:scripts', JSON.stringify(scripts))
-  }, [scripts])
+    if (!authUser?.email || !accountHydrated) {
+      return
+    }
+    localStorage.setItem(storageKeys.scripts, JSON.stringify(scripts))
+  }, [accountHydrated, authUser?.email, scripts, storageKeys.scripts])
 
   useEffect(() => {
     if (!toast) {
@@ -459,6 +555,50 @@ function Home() {
     () => scripts.find((item) => item.id === selectedScriptId) || scripts[0],
     [scripts, selectedScriptId],
   )
+  const currentDate = new Date()
+  const currentMonth = currentDate.getMonth()
+  const currentYear = currentDate.getFullYear()
+  const currentMonthLabel = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+
+  const scriptsThisMonthCount = useMemo(
+    () =>
+      scripts.filter((script) => {
+        const created = parseIsoDate(script.createdAt) || new Date(script.date)
+        if (Number.isNaN(created.getTime())) {
+          return false
+        }
+        return created.getMonth() === currentMonth && created.getFullYear() === currentYear
+      }).length,
+    [currentMonth, currentYear, scripts],
+  )
+
+  const favoriteNiche = useMemo(() => {
+    if (!scripts.length) {
+      return 'N/A'
+    }
+
+    const nicheCounts = scripts.reduce<Record<string, number>>((acc, script) => {
+      const niche = script.niche?.trim() || 'General'
+      acc[niche] = (acc[niche] || 0) + 1
+      return acc
+    }, {})
+
+    return Object.entries(nicheCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A'
+  }, [scripts])
+
+  const mostUsedTone = useMemo(() => {
+    if (!scripts.length) {
+      return 'N/A'
+    }
+
+    const toneCounts = scripts.reduce<Record<string, number>>((acc, script) => {
+      const tone = script.tone?.trim() || 'Conversational'
+      acc[tone] = (acc[tone] || 0) + 1
+      return acc
+    }, {})
+
+    return Object.entries(toneCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A'
+  }, [scripts])
 
   const openToast = (message: string) => {
     setToast(message)
@@ -479,6 +619,8 @@ function Home() {
         const userName = user.userMetadata?.full_name || authForm.name || 'Creator'
 
         setAuthUser({ name: userName, email: user.email })
+        hydrateAccountData(user.email)
+        setAccountHydrated(true)
         setScreen('onboarding')
         openToast(
           user.emailVerified ? 'Account ready. Personalizing your workspace.' : 'Account created. Check email to confirm.',
@@ -488,7 +630,11 @@ function Home() {
         const userName = user.userMetadata?.full_name || user.name || user.email.split('@')[0] || 'Creator'
 
         setAuthUser({ name: userName, email: user.email })
-        const done = localStorage.getItem('scriptr:onboarding-complete')
+        hydrateAccountData(user.email)
+        setAccountHydrated(true)
+        const done =
+          localStorage.getItem(getUserStorageKey('scriptr:onboarding-complete', user.email)) ||
+          localStorage.getItem(LEGACY_ONBOARDING_COMPLETE_KEY)
         setScreen(done ? 'app' : 'onboarding')
         openToast('Signed in. Welcome back to Scriptr.')
       }
@@ -519,6 +665,7 @@ function Home() {
     }
 
     setAuthUser(null)
+    setAccountHydrated(false)
     setScreen('landing')
     setActiveNav('dashboard')
     openToast('Signed out.')
@@ -526,7 +673,9 @@ function Home() {
 
   const persistOnboarding = (updated: OnboardingState) => {
     setOnboarding(updated)
-    localStorage.setItem('scriptr:onboarding', JSON.stringify(updated))
+    if (authUser?.email) {
+      localStorage.setItem(storageKeys.onboarding, JSON.stringify(updated))
+    }
   }
 
   const nextOnboarding = () => {
@@ -536,7 +685,9 @@ function Home() {
     }
 
     if (onboardingStep === ONBOARDING_TOTAL_STEPS) {
-      localStorage.setItem('scriptr:onboarding-complete', 'true')
+      if (authUser?.email) {
+        localStorage.setItem(storageKeys.onboardingComplete, 'true')
+      }
       setScreen('app')
       openToast('Workspace ready. Start building your channel system.')
       return
@@ -568,26 +719,43 @@ function Home() {
 
   const getCurrentScriptText = () => polishedScriptText || formatScriptText(scriptDraft || undefined)
 
-  const upsertSavedScript = (generated: GeneratedScript, options: { notify: boolean }) => {
+  const upsertSavedScript = (
+    generated: GeneratedScript,
+    options: { notify: boolean; fullScriptBody?: string; outlineSections?: Array<{ heading: string; content: string }> },
+  ) => {
     const recordId = autosavedScriptId || `sc-${Date.now()}`
 
     setScripts((current) => {
+      const nowIso = new Date().toISOString()
+      const existing = autosavedScriptId ? current.find((script) => script.id === autosavedScriptId) : null
+      const formattedBody = options.fullScriptBody || formatScriptText(generated)
+      const finalOutlineSections =
+        options.outlineSections ||
+        outlineBlocks.map((section) => ({
+          heading: section.section,
+          content: section.content,
+        }))
+
       const nextScript: SavedScript = {
         id: recordId,
         title: generated.script.title || `Untitled Script (${new Date().toLocaleDateString()})`,
+        selectedTitle: selectedTitle || generated.script.title || 'Untitled Script',
         date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        createdAt: existing?.createdAt || nowIso,
+        updatedAt: nowIso,
         profile: selectedProfile.channelName,
         niche: channelContext.niche,
+        tone: channelContext.tone || primaryProfile.tone,
         type: channelContext.videoFormat,
         status: 'Draft',
-        favorite: false,
-        script: formatScriptText(generated),
+        favorite: existing?.favorite || false,
+        outlineSections: finalOutlineSections,
+        fullScriptBody: formattedBody,
+        script: formattedBody,
       }
 
       if (autosavedScriptId) {
-        return current.map((script) =>
-          script.id === autosavedScriptId ? { ...script, ...nextScript, favorite: script.favorite } : script,
-        )
+        return current.map((script) => (script.id === autosavedScriptId ? { ...script, ...nextScript } : script))
       }
 
       return [nextScript, ...current]
@@ -730,7 +898,7 @@ function Home() {
 
       setPolishedScriptText(data.polished_script)
       if (scriptDraft) {
-        upsertSavedScript(scriptDraft, { notify: false })
+        upsertSavedScript(scriptDraft, { notify: false, fullScriptBody: data.polished_script })
       }
       setPolishChat((current) => [
         ...current,
@@ -1748,7 +1916,10 @@ function Home() {
                       <article
                         className={`script-card ${selectedScriptId === script.id ? 'active' : ''}`}
                         key={script.id}
-                        onClick={() => setSelectedScriptId(script.id)}
+                        onClick={() => {
+                          setSelectedScriptId(script.id)
+                          setScriptDetailView('title')
+                        }}
                       >
                         <h4>{script.title}</h4>
                         <p>{script.date}</p>
@@ -1758,7 +1929,13 @@ function Home() {
                           <span className="tag">{script.status}</span>
                         </div>
                         <div className="mini-actions">
-                          <button className="btn tiny" onClick={() => toggleFavoriteScript(script.id)}>
+                          <button
+                            className="btn tiny"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              toggleFavoriteScript(script.id)
+                            }}
+                          >
                             {script.favorite ? 'Unfavorite' : 'Favorite'}
                           </button>
                           <button className="btn tiny">Archive</button>
@@ -1773,7 +1950,43 @@ function Home() {
                   {selectedScript ? (
                     <>
                       <h4>{selectedScript.title}</h4>
-                      <p>{selectedScript.script}</p>
+                      <div className="action-row wrap detail-switcher">
+                        <button
+                          className={`btn secondary ${scriptDetailView === 'title' ? 'active-filter' : ''}`}
+                          onClick={() => setScriptDetailView('title')}
+                        >
+                          Title
+                        </button>
+                        <button
+                          className={`btn secondary ${scriptDetailView === 'outline' ? 'active-filter' : ''}`}
+                          onClick={() => setScriptDetailView('outline')}
+                        >
+                          Outline
+                        </button>
+                        <button
+                          className={`btn secondary ${scriptDetailView === 'full' ? 'active-filter' : ''}`}
+                          onClick={() => setScriptDetailView('full')}
+                        >
+                          Full Script
+                        </button>
+                      </div>
+                      <div className="script-detail-content">
+                        {scriptDetailView === 'title' && <p>{selectedScript.selectedTitle || selectedScript.title}</p>}
+                        {scriptDetailView === 'outline' &&
+                          (selectedScript.outlineSections.length ? (
+                            <div className="outline-list">
+                              {selectedScript.outlineSections.map((outline, index) => (
+                                <article key={`${outline.heading}-${index}`} className="outline-item">
+                                  <h5>{outline.heading}</h5>
+                                  <p>{outline.content}</p>
+                                </article>
+                              ))}
+                            </div>
+                          ) : (
+                            <p>No outline saved for this script yet.</p>
+                          ))}
+                        {scriptDetailView === 'full' && <pre>{selectedScript.fullScriptBody || selectedScript.script}</pre>}
+                      </div>
                       <div className="tag-row">
                         <span className="tag">{selectedScript.date}</span>
                         <span className="tag">{selectedScript.niche}</span>
@@ -1835,9 +2048,13 @@ function Home() {
               </header>
 
               <div className="stat-grid">
-                <StatCard title="Scripts this month" value="18" meta="+22% vs last month" />
-                <StatCard title="Favorite niche" value="AI tools" meta="42% of generations" />
-                <StatCard title="Most-used tone" value="Authoritative" meta="31 generations" />
+                <StatCard
+                  title="Scripts this month"
+                  value={String(scriptsThisMonthCount)}
+                  meta={`${currentMonthLabel} generations`}
+                />
+                <StatCard title="Favorite niche" value={favoriteNiche} meta={`${scripts.length} total saved scripts`} />
+                <StatCard title="Most-used tone" value={mostUsedTone} meta="Based on saved script history" />
                 <StatCard title="Plan usage" value="60%" meta="18 of 30 credits" />
               </div>
 

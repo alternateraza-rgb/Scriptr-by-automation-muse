@@ -1,12 +1,18 @@
 import { generateTitles } from './services/scriptGenerationService.mts'
-import { success, failure, parseJsonBody } from './utils/response.js'
+import { failure, parseJsonBody, success } from './utils/response.mts'
+import type { ChannelContext, VideoIdea } from './services/types.mts'
 
-export async function handler(event) {
+type TitlesRequest = {
+  channelContext?: ChannelContext
+  selectedIdea?: VideoIdea
+}
+
+export default async (req: Request) => {
   try {
-    if (event.httpMethod !== 'POST') {
+    if (req.method !== 'POST') {
       return failure('Method not allowed. Use POST.', 405)
     }
-    const body = parseJsonBody(event)
+    const body = await parseJsonBody<TitlesRequest>(req)
 
     if (!body.channelContext || !body.selectedIdea?.title) {
       return failure('Missing required payload for title generation.', 400)

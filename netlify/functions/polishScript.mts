@@ -1,12 +1,17 @@
 import { polishScript } from './services/scriptGenerationService.mts'
-import { success, failure, parseJsonBody } from './utils/response.js'
+import { failure, parseJsonBody, success } from './utils/response.mts'
 
-export async function handler(event) {
+type PolishRequest = {
+  script?: unknown
+  mode?: unknown
+}
+
+export default async (req: Request) => {
   try {
-    if (event.httpMethod !== 'POST') {
+    if (req.method !== 'POST') {
       return failure('Method not allowed. Use POST.', 405)
     }
-    const body = parseJsonBody(event)
+    const body = await parseJsonBody<PolishRequest>(req)
     const mode = typeof body.mode === 'string' ? body.mode : ''
 
     if (!body.script || !mode) {

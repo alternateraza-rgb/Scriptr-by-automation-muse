@@ -1,12 +1,22 @@
 import { generateIdeas } from './services/scriptGenerationService.mts'
-import { success, failure, parseJsonBody } from './utils/response.js'
+import { failure, parseJsonBody, success } from './utils/response.mts'
 
-export async function handler(event) {
+type IdeasRequest = {
+  channelContext?: {
+    niche?: string
+    targetAudience?: string
+    audience?: string
+    videoTopicIdea?: string
+  }
+}
+
+export default async (req: Request) => {
   try {
-    if (event.httpMethod !== 'POST') {
+    if (req.method !== 'POST') {
       return failure('Method not allowed. Use POST.', 405)
     }
-    const body = parseJsonBody(event)
+
+    const body = await parseJsonBody<IdeasRequest>(req)
     const channelContext = body.channelContext || {}
 
     if (!channelContext.niche || !(channelContext.targetAudience || channelContext.audience) || !channelContext.videoTopicIdea) {
