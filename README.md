@@ -23,8 +23,8 @@ A modern chat template built with TanStack Router and Claude AI integration feat
   - [Tech Stack](#tech-stack)
   - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
-  - [Local Setup](#local-setup)
-  - [Local Setup with Netlify Dev](#local-setup-with-netlify-dev-recommended)
+  - [Local Setup (Recommended)](#local-setup-recommended)
+  - [Local Setup with Vite only (No Netlify Functions)](#local-setup-with-vite-only-no-netlify-functions)
   - [Troubleshooting](#troubleshooting)
   - [Building For Production](#building-for-production)
 - [Styling](#styling)
@@ -121,7 +121,7 @@ tanstack-template/
 
 ## Getting Started
 
-### Local Setup
+### Local Setup (Recommended)
 
 Follow these steps to set up and run the project locally:
 
@@ -151,35 +151,22 @@ Follow these steps to set up and run the project locally:
    npm run dev
    ```
    
-   The application should now be running at [http://localhost:3000](http://localhost:3000)
+   The application should now be running at [http://localhost:8888](http://localhost:8888) with local Netlify Functions support.
 
-### Local Setup with Netlify Dev (Recommended)
+### Local Setup with Vite only (No Netlify Functions)
 
-You can also use [Netlify Dev](https://www.netlify.com/products/dev/) to run your application locally with Netlify's full functionality:
+Use this option only when function routes are not needed:
 
-1. **Install Netlify CLI globally** (if you haven't already)
+1. **Start Vite directly**
    ```bash
-   npm install -g netlify-cli
+   npm run dev:vite
    ```
+   This starts the frontend only.
 
-2. **Link your Netlify site** (optional)
-   ```bash
-   netlify link
-   ```
-   This will connect your local project to a Netlify site. If you haven't created a Netlify site yet, you can skip this step.
+2. **Access your site**
+   The application will be available at [http://localhost:3000](http://localhost:3000) by default.
 
-3. **Start the development server with Netlify Dev**
-   ```bash
-   netlify dev
-   ```
-   This will:
-   - Start your local development server (similar to `npm run dev`)
-   - Load your Netlify environment variables
-   - Provide local versions of Netlify Functions (if any)
-   - Simulate the Netlify production environment locally
-
-4. **Access your site**
-   The application will be available at [http://localhost:8888](http://localhost:8888) by default.
+   Netlify Function calls like `/.netlify/functions/generateOutline` will not be available in this mode.
 
 ### Troubleshooting
 

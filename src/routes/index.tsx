@@ -10,6 +10,20 @@ import {
 } from '@netlify/identity'
 import { useEffect, useMemo, useState } from 'react'
 import {
+  generateHooksAndTitles as requestHooksAndTitles,
+  generateIdeas as requestIdeas,
+  generateOutline as requestOutline,
+  generateScript as requestScript,
+  polishScript as requestPolishScript,
+} from '../services/scriptGenerationService'
+import type {
+  ChannelContext,
+  GeneratedScript,
+  HookTitlePayload,
+  OutlineSection,
+  VideoIdea,
+} from '../services/types'
+import {
   ArrowRight,
   BarChart3,
   BookOpen,
@@ -32,7 +46,7 @@ import {
 
 type Screen = 'landing' | 'signin' | 'signup' | 'forgot' | 'onboarding' | 'app'
 type NavKey = 'dashboard' | 'generate' | 'scripts' | 'profiles' | 'usage' | 'billing' | 'settings'
-type GenTab = 'Overview' | 'Titles' | 'Hooks' | 'Outline' | 'Full Script' | 'CTA' | 'Repurpose'
+type WorkflowStep = 1 | 2 | 3 | 4 | 5 | 6
 
 type ChannelProfile = {
   id: string
@@ -64,6 +78,7 @@ type SavedScript = {
 }
 
 type OnboardingState = {
+  channelName: string
   niche: string
   customNiche: string
   stage: string
@@ -80,6 +95,7 @@ type OnboardingState = {
 }
 
 const ONBOARDING_DEFAULTS: OnboardingState = {
+  channelName: '',
   niche: '',
   customNiche: '',
   stage: '',
@@ -144,11 +160,9 @@ const CONTENT_OPTIONS = [
 ]
 
 const FREQUENCY_OPTIONS = [
-  '1 video/week',
-  '2-3 videos/week',
-  'Daily shorts',
-  'Mixed schedule',
-  'Not sure yet',
+  '1 video per month',
+  '2 videos per month',
+  '3 videos per month',
 ]
 
 const TONE_OPTIONS = [
@@ -173,86 +187,24 @@ const PRIMARY_GOALS = [
   'Launch my first channel',
 ]
 
-const INITIAL_PROFILES: ChannelProfile[] = [
-  {
-    id: 'cp-1',
-    channelName: 'Silent Signals AI',
-    niche: 'AI tools',
-    description: 'Faceless deep dives on AI products and workflows for operators.',
-    audience: 'Founders and creators scaling with automation',
-    tone: 'Authoritative + cinematic',
-    length: '12-15 minutes',
-    ctaStyle: 'Soft authority CTA to free toolkit',
-    frequency: '2-3 videos/week',
-    monetizationGoal: 'Leads for consulting + affiliates',
-    pillars: 'AI tools, automations, workflow breakdowns',
-    inspirations: 'ColdFusion, MagnatesMedia pacing',
-    brandVoice: 'Confident, concise, strategic',
-    isDefault: true,
-  },
-  {
-    id: 'cp-2',
-    channelName: 'Lux Ledger',
-    niche: 'Luxury',
-    description: 'Story-driven breakdowns of wealth, brands, and elite habits.',
-    audience: 'Ambitious professionals 22-40',
-    tone: 'Luxury documentary',
-    length: '10-12 minutes',
-    ctaStyle: 'Premium newsletter CTA',
-    frequency: '1 video/week',
-    monetizationGoal: 'Sponsorships + premium content',
-    pillars: 'Luxury brands, status psychology, high-net-worth stories',
-    inspirations: 'Vox style editing with premium voiceover',
-    brandVoice: 'Elegant, sharp, editorial',
-  },
-]
+const INITIAL_SCRIPTS: SavedScript[] = []
 
-const INITIAL_SCRIPTS: SavedScript[] = [
-  {
-    id: 'sc-1',
-    title: '7 AI Automations Replacing Entry-Level Jobs in 2026',
-    date: 'Mar 12, 2026',
-    profile: 'Silent Signals AI',
-    niche: 'AI tools',
-    type: 'Long-form',
-    status: 'Ready to record',
-    favorite: true,
-    script:
-      'Hook: Most people think AI will replace jobs slowly. They are wrong.\n\nIntro: In the next 18 months, these seven automations will remove entire task categories...\n\nBody: [1] Sales ops automation... [2] Video repurposing pipelines... [3] Client reporting agents...\n\nCTA: Subscribe for weekly channel systems and plug into the Automation Muse playbook.',
-  },
-  {
-    id: 'sc-2',
-    title: 'How Luxury Brands Manufacture Desire (Without Lowering Prices)',
-    date: 'Mar 10, 2026',
-    profile: 'Lux Ledger',
-    niche: 'Luxury',
-    type: 'Documentary',
-    status: 'Draft',
-    favorite: false,
-    script:
-      'Hook: If quality alone sold products, luxury brands would not need waitlists.\n\nOutline: scarcity loops, symbolic value, controlled distribution, narrative engineering...\n\nCTA: Get the Luxury Channel Template in the description.',
-  },
-  {
-    id: 'sc-3',
-    title: 'The Hidden Math Behind Viral Finance Explainers',
-    date: 'Mar 08, 2026',
-    profile: 'Silent Signals AI',
-    niche: 'Finance',
-    type: 'Educational',
-    status: 'In review',
-    favorite: true,
-    script:
-      'Hook: Viral finance content is not random. It follows a pattern of contrast, conflict, and payoff...\n\nCTA: Save this script framework before your next upload sprint.',
-  },
-]
+const ONBOARDING_TOTAL_STEPS = 11
 
-const GENERATION_TABS: GenTab[] = ['Overview', 'Titles', 'Hooks', 'Outline', 'Full Script', 'CTA', 'Repurpose']
+const WORKFLOW_STEPS: Array<{ id: WorkflowStep; label: string }> = [
+  { id: 1, label: 'Video Ideas' },
+  { id: 2, label: 'Titles' },
+  { id: 3, label: 'Outline' },
+  { id: 4, label: 'Full Script' },
+  { id: 5, label: 'Polish' },
+  { id: 6, label: 'Download' },
+]
 
 const NAV_ITEMS: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'generate', label: 'Generate', icon: Sparkles },
   { key: 'scripts', label: 'Scripts', icon: FileText },
-  { key: 'profiles', label: 'Channel Profiles', icon: BookOpen },
+  { key: 'profiles', label: 'Channel Profile', icon: BookOpen },
   { key: 'usage', label: 'Analytics', icon: BarChart3 },
   { key: 'billing', label: 'Billing', icon: CreditCard },
   { key: 'settings', label: 'Settings', icon: Settings2 },
@@ -287,6 +239,28 @@ const FAQ = [
     a: 'Yes. From niche and topic inputs, Scriptr generates hooks, outlines, full scripts, titles, and repurpose outputs.',
   },
 ]
+
+const getPrimaryNiche = (onboarding: OnboardingState) => onboarding.customNiche || onboarding.niche || 'General'
+const getPrimaryTone = (onboarding: OnboardingState) => onboarding.customTone || onboarding.tone || 'Conversational'
+
+const buildPrimaryProfile = (onboarding: OnboardingState): ChannelProfile => ({
+  id: 'cp-primary',
+  channelName: onboarding.channelName || 'Untitled Channel',
+  niche: getPrimaryNiche(onboarding),
+  description: `Channel strategy for ${onboarding.channelName || 'your channel'} focused on ${
+    getPrimaryNiche(onboarding)
+  } content.`,
+  audience: onboarding.audienceDescription || 'Audience profile not set yet.',
+  tone: getPrimaryTone(onboarding),
+  length: '8-12 minutes',
+  ctaStyle: onboarding.primaryGoal || 'Subscriber CTA',
+  frequency: onboarding.uploadFrequency || '1 video per month',
+  monetizationGoal: onboarding.incomeGoal || 'Build sustainable channel revenue',
+  pillars: onboarding.contentStyle || 'Educational explainers',
+  inspirations: 'Add inspiration channels',
+  brandVoice: getPrimaryTone(onboarding),
+  isDefault: true,
+})
 
 function ScriptrLogo({ compact = false }: { compact?: boolean }) {
   return (
@@ -323,7 +297,7 @@ function ScriptrLogo({ compact = false }: { compact?: boolean }) {
 function Home() {
   const [screen, setScreen] = useState<Screen>('landing')
   const [activeNav, setActiveNav] = useState<NavKey>('dashboard')
-  const [activeTab, setActiveTab] = useState<GenTab>('Overview')
+  const [workflowStep, setWorkflowStep] = useState<WorkflowStep>(1)
   const [onboardingStep, setOnboardingStep] = useState(1)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [toast, setToast] = useState('')
@@ -336,31 +310,44 @@ function Home() {
   const [forgotEmail, setForgotEmail] = useState('')
 
   const [onboarding, setOnboarding] = useState<OnboardingState>(ONBOARDING_DEFAULTS)
-  const [profiles, setProfiles] = useState<ChannelProfile[]>(INITIAL_PROFILES)
   const [scripts, setScripts] = useState<SavedScript[]>(INITIAL_SCRIPTS)
-  const [selectedScriptId, setSelectedScriptId] = useState(INITIAL_SCRIPTS[0]?.id ?? '')
+  const [selectedScriptId, setSelectedScriptId] = useState('')
 
-  const [generatorForm, setGeneratorForm] = useState({
-    profileId: INITIAL_PROFILES[0].id,
-    niche: 'AI tools',
-    videoTopic: 'AI workflows that replace manual agency tasks',
-    audience: 'Agency founders scaling client delivery',
-    videoType: 'Long-form faceless videos',
+  const [channelContext, setChannelContext] = useState<ChannelContext>({
+    niche: '',
+    videoTopicIdea: '',
+    targetAudience: '',
+    tone: '',
     videoLength: '10-12 minutes',
-    tone: 'Authoritative',
-    hookStyle: 'Curiosity hook',
-    ctaGoal: 'Drive traffic to free automation toolkit',
-    sourceNotes: 'Focus on practical systems with specific examples and metrics.',
-    competitorInspiration: 'Think MagnatesMedia pacing with practical utility.',
-    outputStyle: 'High-retention narrative',
-    customInstructions: 'Use pattern interrupts every 45-60 seconds.',
+    videoFormat: 'Long-form faceless videos',
+    monetizationGoal: '',
+    channelStage: '',
+    channelName: '',
   })
 
+  const [videoIdeas, setVideoIdeas] = useState<VideoIdea[]>([])
+  const [selectedIdeaIndex, setSelectedIdeaIndex] = useState<number | null>(null)
+  const [titleOptions, setTitleOptions] = useState<HookTitlePayload | null>(null)
+  const [selectedTitle, setSelectedTitle] = useState('')
+  const [outlineBlocks, setOutlineBlocks] = useState<OutlineSection[]>([])
+  const [scriptDraft, setScriptDraft] = useState<GeneratedScript | null>(null)
+  const [polishCommand, setPolishCommand] = useState('')
+  const [polishChat, setPolishChat] = useState<Array<{ id: string; role: 'user' | 'assistant'; message: string }>>([])
+  const [autosavedScriptId, setAutosavedScriptId] = useState<string | null>(null)
+
   const [isGenerating, setIsGenerating] = useState(false)
+  const [loadingMessage, setLoadingMessage] = useState('')
+  const [generationError, setGenerationError] = useState('')
+  const [retryAction, setRetryAction] = useState<null | (() => void)>(null)
+  const [journeyFocused, setJourneyFocused] = useState(false)
+
+  const primaryProfile = useMemo(() => buildPrimaryProfile(onboarding), [onboarding])
+  const profiles = useMemo(() => [primaryProfile], [primaryProfile])
 
   useEffect(() => {
     const restoreSession = async () => {
       const storedOnboarding = localStorage.getItem('scriptr:onboarding')
+      const storedScripts = localStorage.getItem('scriptr:scripts')
       const done = localStorage.getItem('scriptr:onboarding-complete')
 
       if (storedOnboarding) {
@@ -369,6 +356,18 @@ function Home() {
           setOnboarding(parsed)
         } catch {
           localStorage.removeItem('scriptr:onboarding')
+        }
+      }
+
+      if (storedScripts) {
+        try {
+          const parsed = JSON.parse(storedScripts) as SavedScript[]
+          if (Array.isArray(parsed)) {
+            setScripts(parsed)
+            setSelectedScriptId(parsed[0]?.id || '')
+          }
+        } catch {
+          localStorage.removeItem('scriptr:scripts')
         }
       }
 
@@ -400,6 +399,10 @@ function Home() {
   }, [])
 
   useEffect(() => {
+    localStorage.setItem('scriptr:scripts', JSON.stringify(scripts))
+  }, [scripts])
+
+  useEffect(() => {
     if (!toast) {
       return
     }
@@ -408,31 +411,24 @@ function Home() {
     return () => clearTimeout(timeout)
   }, [toast])
 
-  const selectedProfile = useMemo(
-    () => profiles.find((profile) => profile.id === generatorForm.profileId) || profiles[0],
-    [profiles, generatorForm.profileId],
-  )
+  useEffect(() => {
+    setChannelContext((value) => ({
+      ...value,
+      niche: primaryProfile.niche,
+      targetAudience: value.targetAudience || primaryProfile.audience,
+      tone: value.tone || primaryProfile.tone,
+      monetizationGoal: value.monetizationGoal || primaryProfile.monetizationGoal,
+      channelStage: value.channelStage || onboarding.stage,
+      channelName: value.channelName || primaryProfile.channelName,
+    }))
+  }, [primaryProfile, onboarding.stage])
+
+  const selectedProfile = profiles[0]
 
   const selectedScript = useMemo(
     () => scripts.find((item) => item.id === selectedScriptId) || scripts[0],
     [scripts, selectedScriptId],
   )
-
-  const recommendation = useMemo(() => {
-    if (!onboarding.primaryGoal) {
-      return 'Start with Generate New Script to establish your first weekly content system.'
-    }
-
-    if (onboarding.primaryGoal === 'Create hooks and titles') {
-      return 'Open Hook Generator and Title + Thumbnail tabs to build your first packaging sprint.'
-    }
-
-    if (onboarding.primaryGoal === 'Launch my first channel') {
-      return 'Create your first channel profile, then generate 10 topics and one flagship script today.'
-    }
-
-    return 'Create a topic cluster and generate one full script to kick off your next upload cycle.'
-  }, [onboarding.primaryGoal])
 
   const openToast = (message: string) => {
     setToast(message)
@@ -504,47 +500,23 @@ function Home() {
   }
 
   const nextOnboarding = () => {
-    if (onboardingStep === 10) {
+    if (onboardingStep === 3 && !onboarding.channelName.trim()) {
+      openToast('Please enter your channel name to continue.')
+      return
+    }
+
+    if (onboardingStep === ONBOARDING_TOTAL_STEPS) {
       localStorage.setItem('scriptr:onboarding-complete', 'true')
       setScreen('app')
       openToast('Workspace ready. Start building your channel system.')
       return
     }
 
-    setOnboardingStep((value) => Math.min(10, value + 1))
+    setOnboardingStep((value) => Math.min(ONBOARDING_TOTAL_STEPS, value + 1))
   }
 
   const previousOnboarding = () => {
     setOnboardingStep((value) => Math.max(1, value - 1))
-  }
-
-  const triggerGeneration = (message: string) => {
-    setIsGenerating(true)
-    setTimeout(() => {
-      setIsGenerating(false)
-      openToast(message)
-    }, 900)
-  }
-
-  const addProfile = () => {
-    const newProfile: ChannelProfile = {
-      id: `cp-${Date.now()}`,
-      channelName: 'New Channel Profile',
-      niche: onboarding.niche || 'AI',
-      description: 'Describe this channel strategy and editorial direction.',
-      audience: onboarding.audienceDescription || 'Ambitious creators',
-      tone: onboarding.tone || 'Cinematic',
-      length: '8-10 minutes',
-      ctaStyle: 'Soft authority CTA',
-      frequency: onboarding.uploadFrequency || '2-3 videos/week',
-      monetizationGoal: onboarding.incomeGoal || 'Build a real media business',
-      pillars: 'Pillar 1, Pillar 2, Pillar 3',
-      inspirations: 'Add inspiration channels',
-      brandVoice: 'Clear, strategic, high-retention',
-    }
-
-    setProfiles((current) => [newProfile, ...current])
-    openToast('New channel profile created.')
   }
 
   const toggleFavoriteScript = (id: string) => {
@@ -553,29 +525,250 @@ function Home() {
     )
   }
 
-  const saveNewScript = () => {
-    const newScript: SavedScript = {
-      id: `sc-${Date.now()}`,
-      title: `${generatorForm.videoTopic} (${new Date().toLocaleDateString()})`,
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      profile: selectedProfile.channelName,
-      niche: generatorForm.niche,
-      type: generatorForm.videoType,
-      status: 'Draft',
-      favorite: false,
-      script:
-        'Hook: Viewers think this topic is saturated. This angle proves the opposite.\n\nIntro: Today we break down the exact playbook...\n\nCTA: Subscribe for the next workflow breakdown.',
+  const selectedIdea = selectedIdeaIndex !== null ? videoIdeas[selectedIdeaIndex] : null
+
+  const formatScriptText = (generated?: GeneratedScript) => {
+    if (!generated) {
+      return 'No script content yet.'
     }
 
-    setScripts((current) => [newScript, ...current])
-    setSelectedScriptId(newScript.id)
-    setActiveNav('scripts')
-    openToast('Script saved to your library.')
+    const body = generated.body_sections
+      .map((section) => `${section.heading}\n${section.content}`)
+      .join('\n\n')
+
+    return [
+      `Title: ${generated.title}`,
+      `Thumbnail Text: ${generated.thumbnail_text}`,
+      '',
+      `Hook:\n${generated.hook}`,
+      '',
+      `Intro:\n${generated.intro}`,
+      '',
+      `Body:\n${body}`,
+      '',
+      `CTA:\n${generated.cta}`,
+      '',
+      `Conclusion:\n${generated.conclusion}`,
+    ].join('\n')
   }
 
-  const scriptCount = scripts.length
-  const monthlyOutput = 18
-  const monthlyLimit = 60
+  const upsertSavedScript = (generated: GeneratedScript, options: { notify: boolean }) => {
+    const recordId = autosavedScriptId || `sc-${Date.now()}`
+
+    setScripts((current) => {
+      const nextScript: SavedScript = {
+        id: recordId,
+        title: generated.title || `Untitled Script (${new Date().toLocaleDateString()})`,
+        date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        profile: selectedProfile.channelName,
+        niche: channelContext.niche,
+        type: channelContext.videoFormat,
+        status: 'Draft',
+        favorite: false,
+        script: formatScriptText(generated),
+      }
+
+      if (autosavedScriptId) {
+        return current.map((script) =>
+          script.id === autosavedScriptId ? { ...script, ...nextScript, favorite: script.favorite } : script,
+        )
+      }
+
+      return [nextScript, ...current]
+    })
+
+    setAutosavedScriptId(recordId)
+    setSelectedScriptId(recordId)
+
+    if (options.notify) {
+      openToast('Script saved to scripts library.')
+    }
+  }
+
+  const withGenerationState = async (
+    message: string,
+    retry: () => void,
+    action: () => Promise<void>,
+  ) => {
+    setIsGenerating(true)
+    setLoadingMessage(message)
+    setGenerationError('')
+    setRetryAction(null)
+    try {
+      await action()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Something went wrong with AI generation.'
+      setGenerationError(message)
+      setRetryAction(() => retry)
+      openToast('Generation failed. Retry.')
+    } finally {
+      setIsGenerating(false)
+      setLoadingMessage('')
+    }
+  }
+
+  const generateIdeas = async () => {
+    if (!channelContext.niche.trim() || !channelContext.targetAudience.trim() || !channelContext.videoTopicIdea.trim()) {
+      openToast('Add niche, target audience, and video topic idea to generate ideas.')
+      return
+    }
+
+    setJourneyFocused(true)
+    await withGenerationState('Analyzing your niche and generating video ideas...', () => void generateIdeas(), async () => {
+      const data = await requestIdeas(channelContext)
+      setVideoIdeas(data.ideas)
+      setSelectedIdeaIndex(null)
+      setTitleOptions(null)
+      setSelectedTitle('')
+      setOutlineBlocks([])
+      setScriptDraft(null)
+      setPolishChat([])
+      setAutosavedScriptId(null)
+      setWorkflowStep(1)
+      openToast('Video ideas generated.')
+    })
+  }
+
+  const generateTitlesForIdea = async (ideaIndex: number) => {
+    const idea = videoIdeas[ideaIndex]
+    if (!idea) {
+      return
+    }
+
+    setSelectedIdeaIndex(ideaIndex)
+    await withGenerationState('Generating potential titles...', () => void generateTitlesForIdea(ideaIndex), async () => {
+      const data = await requestHooksAndTitles(channelContext, idea)
+      setTitleOptions(data)
+      setSelectedTitle('')
+      setOutlineBlocks([])
+      setScriptDraft(null)
+      setWorkflowStep(2)
+      openToast('Titles generated.')
+    })
+  }
+
+  const chooseTitleAndBuildOutline = async (title: string) => {
+    setSelectedTitle(title)
+    await withGenerationState('Building your retention-focused outline...', () => void chooseTitleAndBuildOutline(title), async () => {
+      const idea = selectedIdeaIndex !== null ? videoIdeas[selectedIdeaIndex] : null
+      if (!idea) {
+        throw new Error('Select a video idea first.')
+      }
+
+      const data = await requestOutline({
+        channelContext,
+        selectedIdea: idea,
+        selectedHook: idea.hook_angle,
+        selectedTitle: title,
+        selectedThumbnail: idea.thumbnail_text,
+      })
+
+      setOutlineBlocks(data.outline)
+      setScriptDraft(null)
+      setWorkflowStep(3)
+      openToast('Outline generated.')
+    })
+  }
+
+  const generateScript = async () => {
+    if (!selectedIdea || !selectedTitle || !outlineBlocks.length) {
+      openToast('Complete outline first.')
+      return
+    }
+
+    await withGenerationState('Writing your full script...', () => void generateScript(), async () => {
+      const data = await requestScript({
+        channelContext,
+        selectedIdea,
+        selectedHook: selectedIdea.hook_angle,
+        selectedTitle,
+        selectedThumbnail: selectedIdea.thumbnail_text,
+        selectedOutline: outlineBlocks,
+      })
+      setScriptDraft(data)
+      upsertSavedScript(data, { notify: true })
+      setWorkflowStep(4)
+      openToast('Full script generated.')
+    })
+  }
+
+  const sendPolishCommand = async () => {
+    const trimmed = polishCommand.trim()
+    if (!scriptDraft) {
+      openToast('Generate a script first.')
+      return
+    }
+    if (!trimmed) {
+      openToast('Enter a polish command first.')
+      return
+    }
+
+    setPolishChat((current) => [...current, { id: `user-${Date.now()}`, role: 'user', message: trimmed }])
+    setPolishCommand('')
+
+    await withGenerationState('Applying your polish command...', () => void sendPolishCommand(), async () => {
+      const data = await requestPolishScript({
+        script: scriptDraft,
+        command: trimmed,
+      })
+
+      setScriptDraft(data.script)
+      upsertSavedScript(data.script, { notify: false })
+      setPolishChat((current) => [
+        ...current,
+        {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          message: data.assistant_reply || 'Script updated.',
+        },
+      ])
+      setWorkflowStep(5)
+      openToast('Script polished.')
+    })
+  }
+
+  const copyScript = async () => {
+    if (!scriptDraft) {
+      return
+    }
+
+    await navigator.clipboard.writeText(formatScriptText(scriptDraft))
+    openToast('Script copied.')
+  }
+
+  const downloadTxt = () => {
+    if (!scriptDraft) {
+      return
+    }
+    const blob = new Blob([formatScriptText(scriptDraft)], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${scriptDraft.title || 'script'}.txt`
+    link.click()
+    URL.revokeObjectURL(url)
+    setWorkflowStep(6)
+  }
+
+  const downloadPdf = () => {
+    if (!scriptDraft) {
+      return
+    }
+
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      openToast('Pop-up blocked. Allow pop-ups to export PDF.')
+      return
+    }
+
+    printWindow.document.write(`<pre>${formatScriptText(scriptDraft)}</pre>`)
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
+    setWorkflowStep(6)
+  }
+
+  const recentScripts = scripts.slice(0, 5)
 
   if (screen === 'landing') {
     return (
@@ -861,14 +1054,16 @@ function Home() {
   }
 
   if (screen === 'onboarding') {
-    const progress = (onboardingStep / 10) * 100
+    const progress = (onboardingStep / ONBOARDING_TOTAL_STEPS) * 100
 
     return (
       <main className="onboarding-page">
         <div className="onboarding-shell glass-panel">
           <div className="onboarding-head">
             <ScriptrLogo />
-            <span className="chip">Step {onboardingStep} of 10</span>
+            <span className="chip">
+              Step {onboardingStep} of {ONBOARDING_TOTAL_STEPS}
+            </span>
           </div>
 
           <div className="progress-track">
@@ -894,6 +1089,17 @@ function Home() {
             )}
 
             {onboardingStep === 3 && (
+              <OnboardingTextStep
+                title="What is your channel name?"
+                subtitle="This will be used as your only channel profile across the workspace."
+                label="Channel name"
+                value={onboarding.channelName}
+                onChange={(value) => persistOnboarding({ ...onboarding, channelName: value })}
+                placeholder="The Script Engine"
+              />
+            )}
+
+            {onboardingStep === 4 && (
               <OnboardingChoiceStep
                 title="Where are you in your YouTube journey?"
                 subtitle="Scriptr adapts recommendations to your current stage."
@@ -903,7 +1109,7 @@ function Home() {
               />
             )}
 
-            {onboardingStep === 4 && (
+            {onboardingStep === 5 && (
               <OnboardingChoiceStep
                 title="What are your income goals with YouTube?"
                 subtitle="Set your target so generation outputs align with your monetization path."
@@ -913,7 +1119,7 @@ function Home() {
               />
             )}
 
-            {onboardingStep === 5 && (
+            {onboardingStep === 6 && (
               <OnboardingChoiceStep
                 title="What type of videos do you want to create?"
                 subtitle="Choose the format mix Scriptr should optimize for first."
@@ -923,17 +1129,17 @@ function Home() {
               />
             )}
 
-            {onboardingStep === 6 && (
+            {onboardingStep === 7 && (
               <OnboardingChoiceStep
-                title="How often do you want to publish?"
-                subtitle="Cadence affects your content system, script depth, and production planning."
+                title="How many videos do you want to post per month?"
+                subtitle="Select your monthly posting cadence."
                 options={FREQUENCY_OPTIONS}
                 value={onboarding.uploadFrequency}
                 onSelect={(value) => persistOnboarding({ ...onboarding, uploadFrequency: value })}
               />
             )}
 
-            {onboardingStep === 7 && (
+            {onboardingStep === 8 && (
               <OnboardingChoiceStep
                 title="What tone should your scripts have?"
                 subtitle="Choose your default brand voice for generated scripts and hooks."
@@ -946,11 +1152,11 @@ function Home() {
               />
             )}
 
-            {onboardingStep === 8 && (
+            {onboardingStep === 9 && (
               <OnboardingAudienceStep onboarding={onboarding} onChange={(value) => persistOnboarding(value)} />
             )}
 
-            {onboardingStep === 9 && (
+            {onboardingStep === 10 && (
               <OnboardingChoiceStep
                 title="What do you want Scriptr to help you do first?"
                 subtitle="Your first dashboard actions will be personalized based on this goal."
@@ -960,10 +1166,10 @@ function Home() {
               />
             )}
 
-            {onboardingStep === 10 && <OnboardingCompletionStep onboarding={onboarding} userName={authUser?.name || 'Creator'} />}
+            {onboardingStep === 11 && <OnboardingCompletionStep onboarding={onboarding} userName={authUser?.name || 'Creator'} />}
           </section>
 
-          {onboardingStep > 1 && onboardingStep < 10 && (
+          {onboardingStep > 1 && onboardingStep < ONBOARDING_TOTAL_STEPS && (
             <div className="onboarding-actions">
               <button className="btn secondary" onClick={previousOnboarding}>
                 Previous
@@ -974,7 +1180,7 @@ function Home() {
             </div>
           )}
 
-          {onboardingStep === 10 && (
+          {onboardingStep === ONBOARDING_TOTAL_STEPS && (
             <div className="onboarding-actions">
               <button className="btn primary" onClick={nextOnboarding}>
                 Enter Dashboard <ArrowRight className="icon-inline" />
@@ -1040,433 +1246,399 @@ function Home() {
             <section className="dashboard-page">
               <header className="page-header">
                 <h1>Welcome back, {authUser?.name || 'Creator'}</h1>
-                <p>
-                  Running a {onboarding.niche || 'faceless'} channel with goal of{' '}
-                  <strong>{onboarding.incomeGoal || 'scalable monthly revenue'}</strong>.
-                </p>
+                <p>Channel profile summary only.</p>
               </header>
 
-              <div className="quick-actions">
+              <section className="panel glass-panel">
+                <h3>Channel Profile Summary</h3>
+                <p>
+                  <strong>{selectedProfile.channelName}</strong>
+                </p>
+                <p>{selectedProfile.description}</p>
+                <div className="tag-row">
+                  <span className="tag">{selectedProfile.niche}</span>
+                  <span className="tag">{selectedProfile.tone}</span>
+                  <span className="tag">{selectedProfile.frequency}</span>
+                </div>
+                <p>
+                  <strong>Audience:</strong> {selectedProfile.audience}
+                </p>
+                <p>
+                  <strong>Monetization Goal:</strong> {selectedProfile.monetizationGoal}
+                </p>
                 <button className="btn primary" onClick={() => setActiveNav('generate')}>
-                  Generate New Script
+                  Open Generate Journey
                 </button>
-                <button
-                  className="btn secondary"
-                  onClick={() => {
-                    setActiveTab('Hooks')
-                    setActiveNav('generate')
-                  }}
-                >
-                  Generate Hooks
-                </button>
-                <button className="btn secondary" onClick={() => setActiveNav('scripts')}>
-                  Your Saved Scripts
-                </button>
-              </div>
-
-              <div className="stat-grid">
-                <StatCard title="This Month's Output" value={`${monthlyOutput}`} meta="Scripts generated" />
-                <StatCard title="Plan Usage" value={`${monthlyOutput}/${monthlyLimit}`} meta="Starter plan usage" />
-                <StatCard title="Saved Scripts" value={`${scriptCount}`} meta="Library assets" />
-                <StatCard title="Primary Goal" value={onboarding.primaryGoal || 'Launch growth'} meta="Personalized focus" />
-              </div>
-
-              <div className="content-grid two">
-                <section className="panel glass-panel">
-                  <h3>Recent Generations</h3>
-                  <ul className="simple-list">
-                    <li>
-                      <span>AI workflow documentary script</span>
-                      <small>2 hours ago</small>
-                    </li>
-                    <li>
-                      <span>10 title options for luxury case study</span>
-                      <small>Yesterday</small>
-                    </li>
-                    <li>
-                      <span>Hook rewrite in documentary tone</span>
-                      <small>2 days ago</small>
-                    </li>
-                  </ul>
-                </section>
-
-                <section className="panel glass-panel">
-                  <h3>Recommended Next Action</h3>
-                  <p>{recommendation}</p>
-                  <button className="btn ghost" onClick={() => setActiveNav('generate')}>
-                    Continue workflow
-                  </button>
-                </section>
-              </div>
-
-              <div className="content-grid two">
-                <section className="panel glass-panel">
-                  <h3>Channel Profile Summary</h3>
-                  <p>
-                    <strong>{profiles[0].channelName}</strong>
-                  </p>
-                  <p>{profiles[0].description}</p>
-                  <div className="tag-row">
-                    <span className="tag">{profiles[0].niche}</span>
-                    <span className="tag">{profiles[0].tone}</span>
-                    <span className="tag">{profiles[0].frequency}</span>
-                  </div>
-                </section>
-
-                <section className="panel glass-panel">
-                  <h3>Empty State: Recent Scripts</h3>
-                  <p>No new scripts generated today. Start with a topic cluster and create your next upload batch.</p>
-                  <button className="btn primary" onClick={() => setActiveNav('generate')}>
-                    Start generating
-                  </button>
-                </section>
-              </div>
+              </section>
             </section>
           )}
 
           {activeNav === 'generate' && (
             <section className="generate-page">
               <header className="page-header">
-                <h1>Script Generation Workflow</h1>
-                <p>Structured creation flow for topics, hooks, outlines, scripts, and repurpose outputs.</p>
+                <h1>Scriptr AI Studio</h1>
+                <p>Go from idea to script in six guided steps with real AI outputs.</p>
               </header>
 
-              <div className="generation-layout">
-                <section className="panel glass-panel">
-                  <h3>Topic Input</h3>
-                  <div className="form-grid">
-                    <label>
-                      Channel profile
-                      <select
-                        value={generatorForm.profileId}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, profileId: event.target.value }))
-                        }
-                      >
-                        {profiles.map((profile) => (
-                          <option value={profile.id} key={profile.id}>
-                            {profile.channelName}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Niche
-                      <input
-                        value={generatorForm.niche}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, niche: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Video topic
-                      <input
-                        value={generatorForm.videoTopic}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, videoTopic: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Target audience
-                      <input
-                        value={generatorForm.audience}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, audience: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Video type
-                      <input
-                        value={generatorForm.videoType}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, videoType: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Desired length
-                      <input
-                        value={generatorForm.videoLength}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, videoLength: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Tone
-                      <input
-                        value={generatorForm.tone}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, tone: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Hook style
-                      <input
-                        value={generatorForm.hookStyle}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, hookStyle: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      CTA goal
-                      <input
-                        value={generatorForm.ctaGoal}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, ctaGoal: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Source notes
-                      <textarea
-                        value={generatorForm.sourceNotes}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, sourceNotes: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Competitor inspiration
-                      <textarea
-                        value={generatorForm.competitorInspiration}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, competitorInspiration: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Output style
-                      <input
-                        value={generatorForm.outputStyle}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, outputStyle: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Custom instructions
-                      <textarea
-                        value={generatorForm.customInstructions}
-                        onChange={(event) =>
-                          setGeneratorForm((value) => ({ ...value, customInstructions: event.target.value }))
-                        }
-                      />
-                    </label>
+              <div className={`generation-layout ${journeyFocused ? 'journey-focused' : ''}`}>
+                {!journeyFocused && (
+                  <section className="panel glass-panel variables-panel">
+                    <h3>Generation Variables</h3>
+                    <div className="form-grid">
+                      <label>
+                        Niche
+                        <input value={channelContext.niche} readOnly />
+                      </label>
+                      <label>
+                        Video topic idea
+                        <input
+                          value={channelContext.videoTopicIdea}
+                          onChange={(event) =>
+                            setChannelContext((value) => ({ ...value, videoTopicIdea: event.target.value }))
+                          }
+                          placeholder="Roman history"
+                        />
+                      </label>
+                      <label>
+                        Target audience
+                        <input
+                          value={channelContext.targetAudience}
+                          onChange={(event) =>
+                            setChannelContext((value) => ({ ...value, targetAudience: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Tone
+                        <input
+                          value={channelContext.tone}
+                          onChange={(event) =>
+                            setChannelContext((value) => ({ ...value, tone: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Video length
+                        <input
+                          value={channelContext.videoLength}
+                          onChange={(event) =>
+                            setChannelContext((value) => ({ ...value, videoLength: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Video format
+                        <input
+                          value={channelContext.videoFormat}
+                          onChange={(event) =>
+                            setChannelContext((value) => ({ ...value, videoFormat: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Monetization goal
+                        <input
+                          value={channelContext.monetizationGoal}
+                          onChange={(event) =>
+                            setChannelContext((value) => ({ ...value, monetizationGoal: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Channel stage
+                        <input
+                          value={channelContext.channelStage}
+                          onChange={(event) =>
+                            setChannelContext((value) => ({ ...value, channelStage: event.target.value }))
+                          }
+                        />
+                      </label>
+                    </div>
+
+                    <div className="action-row">
+                      <button className="btn primary" onClick={generateIdeas} disabled={isGenerating}>
+                        Generate Video Ideas
+                      </button>
+                      <button className="btn secondary" onClick={() => setActiveNav('scripts')}>
+                        Open Scripts Library
+                      </button>
+                    </div>
+                  </section>
+                )}
+
+                <section className="panel glass-panel journey-panel">
+                  <div className="journey-header">
+                    <span className="chip">Generation Journey</span>
+                    <div className="journey-header-actions">
+                      <span className="journey-status">{workflowStep}/6 complete</span>
+                      {journeyFocused && (
+                        <button className="btn secondary journey-back-btn" onClick={() => setJourneyFocused(false)}>
+                          Change Variables
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="action-row">
-                    <button className="btn secondary" onClick={() => triggerGeneration('Topic ideas generated.') }>
-                      Generate Ideas
-                    </button>
-                    <button className="btn secondary" onClick={() => triggerGeneration('Outline generated.') }>
-                      Build Outline
-                    </button>
-                    <button className="btn primary" onClick={() => triggerGeneration('Full script generated.') }>
-                      Write Full Script
-                    </button>
-                  </div>
-                </section>
-
-                <section className="panel glass-panel">
                   <div className="tabs-row">
-                    {GENERATION_TABS.map((tab) => (
+                    {WORKFLOW_STEPS.map((step) => (
                       <button
-                        key={tab}
-                        className={`tab-pill ${activeTab === tab ? 'active' : ''}`}
-                        onClick={() => setActiveTab(tab)}
+                        key={step.id}
+                        className={`tab-pill ${workflowStep === step.id ? 'active' : ''}`}
+                        onClick={() => setWorkflowStep(step.id)}
                       >
-                        {tab}
+                        {step.label}
                       </button>
                     ))}
                   </div>
 
                   {isGenerating ? (
                     <div className="skeleton-stack">
+                      <p>{loadingMessage || 'Generating...'}</p>
                       <div className="skeleton" />
                       <div className="skeleton" />
                       <div className="skeleton" />
                     </div>
                   ) : (
                     <>
-                      {activeTab === 'Overview' && (
+                      {generationError ? (
+                        <article className="result-card">
+                          <h4>Generation Error</h4>
+                          <p>{generationError}</p>
+                          {retryAction && (
+                            <button className="btn secondary" onClick={retryAction}>
+                              Retry
+                            </button>
+                          )}
+                        </article>
+                      ) : null}
+
+                      {workflowStep === 1 && (
                         <div className="content-stack">
-                          <h3>Topic + Angle Results</h3>
+                          <h3>Step 1: Video Ideas</h3>
+                          {!videoIdeas.length ? (
+                            <div className="empty-state">
+                              <Sparkles className="empty-icon" />
+                              <h3>Generate ideas to begin</h3>
+                              <p>Set your variables, then click Generate Ideas.</p>
+                            </div>
+                          ) : null}
                           <div className="card-grid">
-                            <article className="result-card">
-                              <h4>Topic Idea</h4>
-                              <p>Why agency owners are replacing coordinators with AI copilots.</p>
-                              <span className="tag">Click potential: 9/10</span>
-                            </article>
-                            <article className="result-card">
-                              <h4>Angle Idea</h4>
-                              <p>The hidden profit leak fixed by simple content automation workflows.</p>
-                              <span className="tag">High curiosity</span>
-                            </article>
-                            <article className="result-card">
-                              <h4>Thumbnail text</h4>
-                              <p>"AGENCY TASKS DEAD"</p>
-                              <span className="tag">Authority style</span>
-                            </article>
+                            {videoIdeas.map((idea, index) => (
+                              <article
+                                className={`result-card clickable-card ${selectedIdeaIndex === index ? 'active' : ''}`}
+                                key={`${idea.title}-${index}`}
+                                onClick={() => void generateTitlesForIdea(index)}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault()
+                                    void generateTitlesForIdea(index)
+                                  }
+                                }}
+                              >
+                                <h4>{idea.title}</h4>
+                                <p>{idea.concept}</p>
+                                <p>
+                                  <strong>Why it works:</strong> {idea.why_it_works}
+                                </p>
+                                <p>
+                                  <strong>Hook angle:</strong> {idea.hook_angle}
+                                </p>
+                                <p>
+                                  <strong>Thumbnail text:</strong> {idea.thumbnail_text}
+                                </p>
+                                <span className="tag">Click score: {idea.click_score}/10</span>
+                              </article>
+                            ))}
+                          </div>
+                          <div className="action-row">
+                            <button className="btn secondary" onClick={generateIdeas}>
+                              Regenerate Ideas
+                            </button>
                           </div>
                         </div>
                       )}
 
-                      {activeTab === 'Titles' && (
+                      {workflowStep === 2 && titleOptions && (
                         <div className="content-stack">
-                          <h3>Title + Thumbnail Generator</h3>
-                          <ul className="cards-list">
-                            <li>
-                              <span>10 AI Workflows Replacing Agency Roles in 2026</span>
-                              <em>Viral</em>
-                            </li>
-                            <li>
-                              <span>Agency Owners: Stop Hiring Before You Build This System</span>
-                              <em>Authority</em>
-                            </li>
-                            <li>
-                              <span>The AI Stack That Doubled Content Output Without New Staff</span>
-                              <em>Clean</em>
-                            </li>
-                          </ul>
-                        </div>
-                      )}
-
-                      {activeTab === 'Hooks' && (
-                        <div className="content-stack">
-                          <h3>Hook Generator</h3>
+                          <h3>Step 2: Potential Titles</h3>
                           <div className="card-grid">
-                            <article className="result-card">
-                              <h4>Curiosity hook</h4>
-                              <p>Most creators fail because they optimize editing instead of scripting systems.</p>
-                            </article>
-                            <article className="result-card">
-                              <h4>Shock hook</h4>
-                              <p>One workflow made our worst video writer the most profitable content operator.</p>
-                            </article>
-                            <article className="result-card">
-                              <h4>Authority hook</h4>
-                              <p>After 200 scripts, this structure consistently kept retention above 42%.</p>
-                            </article>
+                            {titleOptions.titles.map((title) => (
+                              <article
+                                className={`result-card clickable-card ${selectedTitle === title ? 'active' : ''}`}
+                                key={title}
+                                onClick={() => void chooseTitleAndBuildOutline(title)}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault()
+                                    void chooseTitleAndBuildOutline(title)
+                                  }
+                                }}
+                              >
+                                <h4>{title}</h4>
+                              </article>
+                            ))}
+                          </div>
+                          <div className="action-row">
+                            <button
+                              className="btn secondary"
+                              onClick={() => {
+                                if (selectedIdeaIndex !== null) {
+                                  void generateTitlesForIdea(selectedIdeaIndex)
+                                }
+                              }}
+                              disabled={selectedIdeaIndex === null}
+                            >
+                              Regenerate
+                            </button>
                           </div>
                         </div>
                       )}
 
-                      {activeTab === 'Outline' && (
+                      {workflowStep === 3 && outlineBlocks.length > 0 && (
                         <div className="content-stack">
-                          <h3>Outline Builder</h3>
-                          <ul className="step-list">
-                            <li>
-                              <strong>Hook:</strong> expose the hidden cost of manual workflows.
-                              <div className="mini-actions">
-                                <button className="btn tiny">Regenerate</button>
-                                <button className="btn tiny">Lock</button>
-                              </div>
-                            </li>
-                            <li>
-                              <strong>Intro:</strong> frame the opportunity and quick win timeline.
-                            </li>
-                            <li>
-                              <strong>Main sections:</strong> system diagnosis, workflow architecture, implementation plan.
-                            </li>
-                            <li>
-                              <strong>CTA placement:</strong> include free toolkit lead magnet after proof section.
-                            </li>
-                          </ul>
+                          <h3>Step 3: Outline</h3>
+                          <div className="card-grid">
+                            {outlineBlocks.map((section) => (
+                              <article className="result-card" key={section.id}>
+                                <h4>{section.title}</h4>
+                                <p>{section.text}</p>
+                              </article>
+                            ))}
+                          </div>
+                          <div className="action-row">
+                            <button className="btn primary" onClick={generateScript}>
+                              Continue to Full Script
+                            </button>
+                          </div>
                         </div>
                       )}
 
-                      {activeTab === 'Full Script' && (
+                      {workflowStep === 4 && scriptDraft && (
                         <div className="content-stack">
-                          <h3>Full Script Output</h3>
+                          <h3>Step 4: Full Script</h3>
                           <article className="script-panel">
                             <h4>Title</h4>
-                            <p>The AI Workflow Playbook Every Agency Will Need in 2026</p>
+                            <p>{scriptDraft.title}</p>
                             <h4>Thumbnail Text</h4>
-                            <p>"THIS REPLACED 3 ROLES"</p>
+                            <p>{scriptDraft.thumbnail_text}</p>
                             <h4>Hook</h4>
-                            <p>
-                              Most agency owners are hiring for a problem that a 3-step workflow can eliminate this week.
-                            </p>
-                            <h4>Body</h4>
-                            <p>
-                              Section 1: expose the bottleneck. Section 2: map the automation stack. Section 3: execution
-                              roadmap for next 30 days.
-                            </p>
+                            <p>{scriptDraft.hook}</p>
+                            <h4>Intro</h4>
+                            <p>{scriptDraft.intro}</p>
+                            {scriptDraft.body_sections.map((section, index) => (
+                              <div key={`${section.heading}-${index}`}>
+                                <h4>{section.heading}</h4>
+                                <p>{section.content}</p>
+                              </div>
+                            ))}
                             <h4>CTA</h4>
-                            <p>Download the Automation Muse scripting template in the description.</p>
+                            <p>{scriptDraft.cta}</p>
+                            <h4>Conclusion</h4>
+                            <p>{scriptDraft.conclusion}</p>
                           </article>
+                          <div className="action-row">
+                            <button className="btn secondary" onClick={copyScript}>
+                              Copy Script
+                            </button>
+                            <button className="btn secondary" onClick={downloadTxt}>
+                              Download TXT
+                            </button>
+                            <button className="btn secondary" onClick={() => void generateScript()}>
+                              Regenerate Script
+                            </button>
+                            <button className="btn primary" onClick={() => setWorkflowStep(5)}>
+                              Continue to Polish
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
+                      {workflowStep === 5 && scriptDraft && (
+                        <div className="content-stack">
+                          <h3>Step 5: Polish Chatbot</h3>
+                          <div className="chat-thread">
+                            {polishChat.length === 0 ? (
+                              <p className="muted-note">Send a command like: "Tighten the intro and make the CTA stronger."</p>
+                            ) : (
+                              polishChat.map((message) => (
+                                <article key={message.id} className={`result-card ${message.role === 'assistant' ? 'assistant' : ''}`}>
+                                  <h4>{message.role === 'assistant' ? 'AI Assistant' : 'You'}</h4>
+                                  <p>{message.message}</p>
+                                </article>
+                              ))
+                            )}
+                          </div>
                           <div className="action-row wrap">
-                            <button className="btn secondary" onClick={saveNewScript}>
-                              Save script
+                            <input
+                              value={polishCommand}
+                              onChange={(event) => setPolishCommand(event.target.value)}
+                              placeholder="Ask AI to amend any part of the script..."
+                            />
+                            <button className="btn primary" onClick={sendPolishCommand}>
+                              Send Command
                             </button>
-                            <button className="btn secondary" onClick={() => openToast('Copied to clipboard placeholder.') }>
-                              Copy
-                            </button>
-                            <button className="btn secondary" onClick={() => openToast('Export placeholder created.') }>
-                              Export
-                            </button>
-                            <button className="btn ghost" onClick={() => openToast('Applied dramatic rewrite preset.') }>
-                              More dramatic
-                            </button>
-                            <button className="btn ghost" onClick={() => openToast('Applied educational rewrite preset.') }>
-                              More educational
-                            </button>
-                            <button className="btn ghost" onClick={() => openToast('Repurposed for shorts.') }>
-                              Rewrite for shorts
+                          </div>
+                          <div className="action-row">
+                            <button className="btn secondary" onClick={() => setWorkflowStep(6)}>
+                              Continue to Download
                             </button>
                           </div>
                         </div>
                       )}
 
-                      {activeTab === 'CTA' && (
+                      {workflowStep === 6 && scriptDraft && (
                         <div className="content-stack">
-                          <h3>CTA Suggestions</h3>
-                          <div className="card-grid">
-                            <article className="result-card">
-                              <h4>Lead magnet CTA</h4>
-                              <p>Download the free channel operating system and deploy this in your next upload sprint.</p>
-                            </article>
-                            <article className="result-card">
-                              <h4>Community CTA</h4>
-                              <p>Join the Automation Muse creator circle for weekly frameworks and teardown sessions.</p>
-                            </article>
+                          <h3>Step 6: Download / Export</h3>
+                          <p>Export your final script and keep it in the Scripts Library.</p>
+                          <div className="action-row">
+                            <button className="btn secondary" onClick={copyScript}>
+                              Copy Script
+                            </button>
+                            <button className="btn secondary" onClick={downloadPdf}>
+                              Download PDF
+                            </button>
                           </div>
                         </div>
                       )}
 
-                      {activeTab === 'Repurpose' && (
-                        <div className="content-stack">
-                          <h3>Repurpose Tools</h3>
-                          <ul className="simple-list">
-                            <li>
-                              <span>Convert long-form script into 7 Shorts</span>
-                              <button className="btn tiny">Run</button>
-                            </li>
-                            <li>
-                              <span>Generate intro-only version</span>
-                              <button className="btn tiny">Run</button>
-                            </li>
-                            <li>
-                              <span>Create social caption sequence</span>
-                              <button className="btn tiny">Run</button>
-                            </li>
-                            <li>
-                              <span>Rewrite for beginner audience</span>
-                              <button className="btn tiny">Run</button>
-                            </li>
-                          </ul>
+                      {workflowStep > 1 &&
+                      ((workflowStep === 2 && !titleOptions) ||
+                        (workflowStep === 3 && !outlineBlocks.length) ||
+                        (workflowStep >= 4 && !scriptDraft)) ? (
+                        <div className="empty-state">
+                          <Sparkles className="empty-icon" />
+                          <h3>Continue the guided flow</h3>
+                          <p>Complete each generation step to unlock the next output.</p>
                         </div>
-                      )}
+                      ) : null}
                     </>
                   )}
                 </section>
+
+                {!journeyFocused && (
+                  <section className="panel glass-panel recent-scripts-panel">
+                  <h3>Recent Scripts</h3>
+                  {recentScripts.length ? (
+                    <ul className="simple-list">
+                      {recentScripts.map((script) => (
+                        <li key={script.id}>
+                          <span>{script.title}</span>
+                          <small>{script.date}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="empty-state">
+                      <h3>No scripts yet</h3>
+                      <p>Run the workflow to auto-save scripts in your library.</p>
+                    </div>
+                  )}
+                  </section>
+                )}
               </div>
             </section>
           )}
@@ -1475,7 +1647,7 @@ function Home() {
             <section className="scripts-page">
               <header className="page-header">
                 <h1>Saved Scripts Library</h1>
-                <p>Search, filter, and manage scripts across channel profiles.</p>
+                <p>Search, filter, and manage scripts for your channel.</p>
               </header>
 
               <div className="library-toolbar panel glass-panel">
@@ -1555,49 +1727,28 @@ function Home() {
           {activeNav === 'profiles' && (
             <section className="profiles-page">
               <header className="page-header">
-                <h1>Channel Profile Management</h1>
-                <p>Create, edit, and set default profiles for each niche or channel operation.</p>
+                <h1>Channel Profile</h1>
+                <p>This workspace uses one channel profile from onboarding.</p>
               </header>
 
-              <div className="action-row">
-                <button className="btn primary" onClick={addProfile}>
-                  Create profile
-                </button>
-              </div>
-
-              {profiles.length ? (
-                <div className="card-grid three">
-                  {profiles.map((profile) => (
-                    <article className="panel glass-panel" key={profile.id}>
-                      <h3>{profile.channelName}</h3>
-                      <p>{profile.description}</p>
-                      <div className="tag-row">
-                        <span className="tag">{profile.niche}</span>
-                        <span className="tag">{profile.tone}</span>
-                        <span className="tag">{profile.frequency}</span>
-                      </div>
-                      <p>
-                        <strong>Audience:</strong> {profile.audience}
-                      </p>
-                      <p>
-                        <strong>Monetization:</strong> {profile.monetizationGoal}
-                      </p>
-                      <div className="mini-actions">
-                        <button className="btn tiny">Edit</button>
-                        <button className="btn tiny">Use in generation</button>
-                        <button className="btn tiny">Set default</button>
-                      </div>
-                    </article>
-                  ))}
+              <article className="panel glass-panel">
+                <h3>{selectedProfile.channelName}</h3>
+                <p>{selectedProfile.description}</p>
+                <div className="tag-row">
+                  <span className="tag">{selectedProfile.niche}</span>
+                  <span className="tag">{selectedProfile.tone}</span>
+                  <span className="tag">{selectedProfile.frequency}</span>
                 </div>
-              ) : (
-                <EmptyState
-                  title="No channel profile yet"
-                  text="Create a profile to personalize script outputs and speed up generation."
-                  cta="Create profile"
-                  onClick={addProfile}
-                />
-              )}
+                <p>
+                  <strong>Audience:</strong> {selectedProfile.audience}
+                </p>
+                <p>
+                  <strong>Monetization:</strong> {selectedProfile.monetizationGoal}
+                </p>
+                <p>
+                  <strong>Content style:</strong> {selectedProfile.pillars}
+                </p>
+              </article>
             </section>
           )}
 
@@ -1617,21 +1768,19 @@ function Home() {
 
               <div className="content-grid two">
                 <section className="panel glass-panel">
-                  <h3>Recent activity</h3>
-                  <ul className="simple-list">
-                    <li>
-                      <span>Generated 10 title options for finance upload</span>
-                      <small>Today</small>
-                    </li>
-                    <li>
-                      <span>Saved documentary-style script revision</span>
-                      <small>Yesterday</small>
-                    </li>
-                    <li>
-                      <span>Created channel profile: Luxe Case Files</span>
-                      <small>2 days ago</small>
-                    </li>
-                  </ul>
+                  <h3>Recent Scripts</h3>
+                  {recentScripts.length ? (
+                    <ul className="simple-list">
+                      {recentScripts.map((script) => (
+                        <li key={script.id}>
+                          <span>{script.title}</span>
+                          <small>{script.date}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No recent scripts yet.</p>
+                  )}
                 </section>
                 <section className="panel glass-panel">
                   <h3>Productivity metrics</h3>
@@ -1901,6 +2050,33 @@ function OnboardingChoiceStep({
   )
 }
 
+function OnboardingTextStep({
+  title,
+  subtitle,
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  title: string
+  subtitle: string
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+}) {
+  return (
+    <div className="onboarding-step fade-step">
+      <h1>{title}</h1>
+      <p>{subtitle}</p>
+      <label>
+        {label}
+        <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      </label>
+    </div>
+  )
+}
+
 function OnboardingAudienceStep({
   onboarding,
   onChange,
@@ -1961,8 +2137,20 @@ function OnboardingCompletionStep({ onboarding, userName }: { onboarding: Onboar
       <p>Scriptr configured your content system for high-retention faceless video production.</p>
       <div className="completion-grid">
         <article className="glass-panel">
+          <h4>Channel Name</h4>
+          <p>{onboarding.channelName || 'Not set'}</p>
+        </article>
+        <article className="glass-panel">
           <h4>Niche</h4>
           <p>{onboarding.customNiche || onboarding.niche || 'Not set'}</p>
+        </article>
+        <article className="glass-panel">
+          <h4>Tone</h4>
+          <p>{onboarding.customTone || onboarding.tone || 'Not set'}</p>
+        </article>
+        <article className="glass-panel">
+          <h4>Videos Per Month</h4>
+          <p>{onboarding.uploadFrequency || 'Not set'}</p>
         </article>
         <article className="glass-panel">
           <h4>Income Goal</h4>
