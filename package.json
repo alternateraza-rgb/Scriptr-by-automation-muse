@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "sh -c 'netlify dev || /opt/buildhome/node-deps/node_modules/.bin/netlify dev'",
+    "dev": "netlify dev",
     "dev:vite": "vite dev --port 3000",
     "build": "vite build",
     "start": "node .output/server/index.mjs",

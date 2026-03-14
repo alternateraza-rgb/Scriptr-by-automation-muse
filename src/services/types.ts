@@ -1,4 +1,12 @@
 export type ChannelContext = {
+  channelProfile?: string
+  audience?: string
+  audienceKnowledgeLevel?: string
+  contentPillars?: string[]
+  exampleChannels?: string[]
+  userNotes?: string
+  channelStyle?: string
+  audiencePainPoints?: string
   niche: string
   videoTopicIdea: string
   targetAudience: string
@@ -15,37 +23,30 @@ export type VideoIdea = {
   concept: string
   why_it_works: string
   hook_angle: string
-  thumbnail_text: string
-  click_score: number
+  click_score: 'high' | 'medium'
 }
 
-export type HookTitlePayload = {
+export type TitlePayload = {
   titles: string[]
 }
 
 export type OutlineSection = {
-  id: string
-  title: string
-  text: string
-  locked?: boolean
+  section: string
+  content: string
 }
 
 export type GeneratedScript = {
-  title: string
-  thumbnail_text: string
-  hook: string
-  intro: string
-  body_sections: Array<{ heading: string; content: string }>
-  cta: string
-  conclusion: string
+  script: {
+    title: string
+    sections: Array<{ section: string; text: string }>
+  }
 }
 
 export type ScriptPolishRequest = {
-  script: GeneratedScript
-  command: string
+  script: string
+  mode: 'shorten' | 'expand' | 'retention' | 'simplify' | 'intensify'
 }
 
 export type ScriptPolishResponse = {
-  script: GeneratedScript
-  assistant_reply: string
+  polished_script: string
 }

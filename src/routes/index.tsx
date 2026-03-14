@@ -10,7 +10,7 @@ import {
 } from '@netlify/identity'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  generateHooksAndTitles as requestHooksAndTitles,
+  generateTitles as requestTitles,
   generateIdeas as requestIdeas,
   generateOutline as requestOutline,
   generateScript as requestScript,
@@ -19,7 +19,7 @@ import {
 import type {
   ChannelContext,
   GeneratedScript,
-  HookTitlePayload,
+  TitlePayload,
   OutlineSection,
   VideoIdea,
 } from '../services/types'
@@ -46,7 +46,7 @@ import {
 
 type Screen = 'landing' | 'signin' | 'signup' | 'forgot' | 'onboarding' | 'app'
 type NavKey = 'dashboard' | 'generate' | 'scripts' | 'profiles' | 'usage' | 'billing' | 'settings'
-type WorkflowStep = 1 | 2 | 3 | 4 | 5 | 6
+type WorkflowStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
 type ChannelProfile = {
   id: string
@@ -181,7 +181,7 @@ const TONE_OPTIONS = [
 const PRIMARY_GOALS = [
   'Generate video ideas',
   'Write full scripts',
-  'Create hooks and titles',
+  'Create titles',
   'Build a full content system',
   'Save time for my team',
   'Launch my first channel',
@@ -192,12 +192,13 @@ const INITIAL_SCRIPTS: SavedScript[] = []
 const ONBOARDING_TOTAL_STEPS = 11
 
 const WORKFLOW_STEPS: Array<{ id: WorkflowStep; label: string }> = [
-  { id: 1, label: 'Video Ideas' },
-  { id: 2, label: 'Titles' },
-  { id: 3, label: 'Outline' },
-  { id: 4, label: 'Full Script' },
-  { id: 5, label: 'Polish' },
-  { id: 6, label: 'Download' },
+  { id: 1, label: 'Channel Context' },
+  { id: 2, label: 'Video Ideas' },
+  { id: 3, label: 'Titles' },
+  { id: 4, label: 'Outline' },
+  { id: 5, label: 'Full Script' },
+  { id: 6, label: 'Polish' },
+  { id: 7, label: 'Download' },
 ]
 
 const NAV_ITEMS: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -236,7 +237,7 @@ const FAQ = [
   },
   {
     q: 'Does Scriptr generate full scripts?',
-    a: 'Yes. From niche and topic inputs, Scriptr generates hooks, outlines, full scripts, titles, and repurpose outputs.',
+    a: 'Yes. From niche and topic inputs, Scriptr generates titles, outlines, full scripts, and repurpose outputs.',
   },
 ]
 
@@ -314,6 +315,14 @@ function Home() {
   const [selectedScriptId, setSelectedScriptId] = useState('')
 
   const [channelContext, setChannelContext] = useState<ChannelContext>({
+    channelProfile: '',
+    audience: '',
+    audienceKnowledgeLevel: '',
+    contentPillars: [],
+    exampleChannels: [],
+    userNotes: '',
+    channelStyle: '',
+    audiencePainPoints: '',
     niche: '',
     videoTopicIdea: '',
     targetAudience: '',
@@ -327,11 +336,12 @@ function Home() {
 
   const [videoIdeas, setVideoIdeas] = useState<VideoIdea[]>([])
   const [selectedIdeaIndex, setSelectedIdeaIndex] = useState<number | null>(null)
-  const [titleOptions, setTitleOptions] = useState<HookTitlePayload | null>(null)
+  const [titleOptions, setTitleOptions] = useState<TitlePayload | null>(null)
   const [selectedTitle, setSelectedTitle] = useState('')
   const [outlineBlocks, setOutlineBlocks] = useState<OutlineSection[]>([])
   const [scriptDraft, setScriptDraft] = useState<GeneratedScript | null>(null)
-  const [polishCommand, setPolishCommand] = useState('')
+  const [polishMode, setPolishMode] = useState<'shorten' | 'expand' | 'retention' | 'simplify' | 'intensify'>('retention')
+  const [polishedScriptText, setPolishedScriptText] = useState('')
   const [polishChat, setPolishChat] = useState<Array<{ id: string; role: 'user' | 'assistant'; message: string }>>([])
   const [autosavedScriptId, setAutosavedScriptId] = useState<string | null>(null)
 
@@ -414,14 +424,34 @@ function Home() {
   useEffect(() => {
     setChannelContext((value) => ({
       ...value,
+      channelProfile: value.channelProfile || primaryProfile.description,
       niche: primaryProfile.niche,
+      audience: value.audience || primaryProfile.audience,
       targetAudience: value.targetAudience || primaryProfile.audience,
+      audienceKnowledgeLevel: value.audienceKnowledgeLevel || onboarding.level || '',
       tone: value.tone || primaryProfile.tone,
       monetizationGoal: value.monetizationGoal || primaryProfile.monetizationGoal,
       channelStage: value.channelStage || onboarding.stage,
+      contentPillars:
+        value.contentPillars && value.contentPillars.length
+          ? value.contentPillars
+          : primaryProfile.pillars
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean),
+      exampleChannels:
+        value.exampleChannels && value.exampleChannels.length
+          ? value.exampleChannels
+          : primaryProfile.inspirations
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean),
+      userNotes: value.userNotes || onboarding.primaryGoal || '',
+      audiencePainPoints: value.audiencePainPoints || onboarding.painPoints || '',
+      channelStyle: value.channelStyle || value.videoFormat || primaryProfile.pillars,
       channelName: value.channelName || primaryProfile.channelName,
     }))
-  }, [primaryProfile, onboarding.stage])
+  }, [primaryProfile, onboarding.level, onboarding.painPoints, onboarding.primaryGoal, onboarding.stage])
 
   const selectedProfile = profiles[0]
 
@@ -532,25 +562,11 @@ function Home() {
       return 'No script content yet.'
     }
 
-    const body = generated.body_sections
-      .map((section) => `${section.heading}\n${section.content}`)
-      .join('\n\n')
-
-    return [
-      `Title: ${generated.title}`,
-      `Thumbnail Text: ${generated.thumbnail_text}`,
-      '',
-      `Hook:\n${generated.hook}`,
-      '',
-      `Intro:\n${generated.intro}`,
-      '',
-      `Body:\n${body}`,
-      '',
-      `CTA:\n${generated.cta}`,
-      '',
-      `Conclusion:\n${generated.conclusion}`,
-    ].join('\n')
+    const sections = Array.isArray(generated.script.sections) ? generated.script.sections : []
+    return [`Title: ${generated.script.title}`, '', ...sections.map((section) => `${section.section}\n${section.text}`)].join('\n\n')
   }
+
+  const getCurrentScriptText = () => polishedScriptText || formatScriptText(scriptDraft || undefined)
 
   const upsertSavedScript = (generated: GeneratedScript, options: { notify: boolean }) => {
     const recordId = autosavedScriptId || `sc-${Date.now()}`
@@ -558,7 +574,7 @@ function Home() {
     setScripts((current) => {
       const nextScript: SavedScript = {
         id: recordId,
-        title: generated.title || `Untitled Script (${new Date().toLocaleDateString()})`,
+        title: generated.script.title || `Untitled Script (${new Date().toLocaleDateString()})`,
         date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
         profile: selectedProfile.channelName,
         niche: channelContext.niche,
@@ -622,9 +638,10 @@ function Home() {
       setSelectedTitle('')
       setOutlineBlocks([])
       setScriptDraft(null)
+      setPolishedScriptText('')
       setPolishChat([])
       setAutosavedScriptId(null)
-      setWorkflowStep(1)
+      setWorkflowStep(2)
       openToast('Video ideas generated.')
     })
   }
@@ -637,12 +654,13 @@ function Home() {
 
     setSelectedIdeaIndex(ideaIndex)
     await withGenerationState('Generating potential titles...', () => void generateTitlesForIdea(ideaIndex), async () => {
-      const data = await requestHooksAndTitles(channelContext, idea)
+      const data = await requestTitles(channelContext, idea)
       setTitleOptions(data)
       setSelectedTitle('')
       setOutlineBlocks([])
       setScriptDraft(null)
-      setWorkflowStep(2)
+      setPolishedScriptText('')
+      setWorkflowStep(3)
       openToast('Titles generated.')
     })
   }
@@ -658,14 +676,16 @@ function Home() {
       const data = await requestOutline({
         channelContext,
         selectedIdea: idea,
-        selectedHook: idea.hook_angle,
         selectedTitle: title,
-        selectedThumbnail: idea.thumbnail_text,
+        audience: channelContext.targetAudience,
+        tone: channelContext.tone,
+        videoLength: channelContext.videoLength,
       })
 
       setOutlineBlocks(data.outline)
       setScriptDraft(null)
-      setWorkflowStep(3)
+      setPolishedScriptText('')
+      setWorkflowStep(4)
       openToast('Outline generated.')
     })
   }
@@ -680,49 +700,47 @@ function Home() {
       const data = await requestScript({
         channelContext,
         selectedIdea,
-        selectedHook: selectedIdea.hook_angle,
         selectedTitle,
-        selectedThumbnail: selectedIdea.thumbnail_text,
-        selectedOutline: outlineBlocks,
+        generatedOutline: outlineBlocks,
+        tone: channelContext.tone,
+        videoLength: channelContext.videoLength,
       })
       setScriptDraft(data)
+      setPolishedScriptText('')
       upsertSavedScript(data, { notify: true })
-      setWorkflowStep(4)
+      setWorkflowStep(5)
       openToast('Full script generated.')
     })
   }
 
   const sendPolishCommand = async () => {
-    const trimmed = polishCommand.trim()
     if (!scriptDraft) {
       openToast('Generate a script first.')
       return
     }
-    if (!trimmed) {
-      openToast('Enter a polish command first.')
-      return
-    }
 
-    setPolishChat((current) => [...current, { id: `user-${Date.now()}`, role: 'user', message: trimmed }])
-    setPolishCommand('')
+    const userMessage = `Apply mode: ${polishMode}`
+    setPolishChat((current) => [...current, { id: `user-${Date.now()}`, role: 'user', message: userMessage }])
 
-    await withGenerationState('Applying your polish command...', () => void sendPolishCommand(), async () => {
+    await withGenerationState('Applying script polish...', () => void sendPolishCommand(), async () => {
       const data = await requestPolishScript({
-        script: scriptDraft,
-        command: trimmed,
+        script: getCurrentScriptText(),
+        mode: polishMode,
       })
 
-      setScriptDraft(data.script)
-      upsertSavedScript(data.script, { notify: false })
+      setPolishedScriptText(data.polished_script)
+      if (scriptDraft) {
+        upsertSavedScript(scriptDraft, { notify: false })
+      }
       setPolishChat((current) => [
         ...current,
         {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
-          message: data.assistant_reply || 'Script updated.',
+          message: `Applied polish mode: ${polishMode}.`,
         },
       ])
-      setWorkflowStep(5)
+      setWorkflowStep(6)
       openToast('Script polished.')
     })
   }
@@ -732,7 +750,7 @@ function Home() {
       return
     }
 
-    await navigator.clipboard.writeText(formatScriptText(scriptDraft))
+    await navigator.clipboard.writeText(getCurrentScriptText())
     openToast('Script copied.')
   }
 
@@ -740,14 +758,14 @@ function Home() {
     if (!scriptDraft) {
       return
     }
-    const blob = new Blob([formatScriptText(scriptDraft)], { type: 'text/plain;charset=utf-8' })
+    const blob = new Blob([getCurrentScriptText()], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${scriptDraft.title || 'script'}.txt`
+    link.download = `${scriptDraft.script.title || 'script'}.txt`
     link.click()
     URL.revokeObjectURL(url)
-    setWorkflowStep(6)
+    setWorkflowStep(7)
   }
 
   const downloadPdf = () => {
@@ -761,11 +779,11 @@ function Home() {
       return
     }
 
-    printWindow.document.write(`<pre>${formatScriptText(scriptDraft)}</pre>`)
+    printWindow.document.write(`<pre>${getCurrentScriptText()}</pre>`)
     printWindow.document.close()
     printWindow.focus()
     printWindow.print()
-    setWorkflowStep(6)
+    setWorkflowStep(7)
   }
 
   const recentScripts = scripts.slice(0, 5)
@@ -790,7 +808,7 @@ function Home() {
             <span className="chip">Premium AI workflow for faceless YouTube businesses</span>
             <h1>Write scripts that keep viewers watching.</h1>
             <p>
-              Scriptr helps creators turn channel ideas into hooks, titles, outlines, and high-retention scripts built to
+              Scriptr helps creators turn channel ideas into titles, outlines, and high-retention scripts built to
               scale content like a real media operation.
             </p>
             <div className="hero-cta">
@@ -851,12 +869,12 @@ function Home() {
             <article className="feature-card glass-panel">
               <PenSquare className="card-icon" />
               <h3>High-retention script writer</h3>
-              <p>Create complete script structures with hooks, story beats, and CTA placements.</p>
+              <p>Create complete script structures with strong openings, story beats, and CTA placements.</p>
             </article>
             <article className="feature-card glass-panel">
               <Target className="card-icon" />
               <h3>Packaging systems</h3>
-              <p>Generate titles, thumbnails, and hooks in a single guided production flow.</p>
+              <p>Generate titles and packaging assets in a single guided production flow.</p>
             </article>
             <article className="feature-card glass-panel">
               <BarChart3 className="card-icon" />
@@ -910,7 +928,7 @@ function Home() {
             <ScriptrLogo />
             <h2>Build your faceless channel like a real business.</h2>
             <p>
-              Use structured AI workflows to create ideas, hooks, scripts, and packaging assets that convert viewers into
+              Use structured AI workflows to create ideas, scripts, and packaging assets that convert viewers into
               loyal subscribers.
             </p>
             <div className="auth-visual-cards">
@@ -1142,7 +1160,7 @@ function Home() {
             {onboardingStep === 8 && (
               <OnboardingChoiceStep
                 title="What tone should your scripts have?"
-                subtitle="Choose your default brand voice for generated scripts and hooks."
+                subtitle="Choose your default brand voice for generated scripts."
                 options={TONE_OPTIONS}
                 value={onboarding.tone}
                 onSelect={(value) => persistOnboarding({ ...onboarding, tone: value })}
@@ -1353,6 +1371,56 @@ function Home() {
                           }
                         />
                       </label>
+                      <label>
+                        Audience knowledge level
+                        <input
+                          value={channelContext.audienceKnowledgeLevel || ''}
+                          onChange={(event) =>
+                            setChannelContext((value) => ({ ...value, audienceKnowledgeLevel: event.target.value }))
+                          }
+                          placeholder="Beginner, intermediate, advanced"
+                        />
+                      </label>
+                      <label>
+                        Content pillars
+                        <input
+                          value={(channelContext.contentPillars || []).join(', ')}
+                          onChange={(event) =>
+                            setChannelContext((value) => ({
+                              ...value,
+                              contentPillars: event.target.value
+                                .split(',')
+                                .map((item) => item.trim())
+                                .filter(Boolean),
+                            }))
+                          }
+                          placeholder="Myths, case studies, analysis"
+                        />
+                      </label>
+                      <label>
+                        Example channels
+                        <input
+                          value={(channelContext.exampleChannels || []).join(', ')}
+                          onChange={(event) =>
+                            setChannelContext((value) => ({
+                              ...value,
+                              exampleChannels: event.target.value
+                                .split(',')
+                                .map((item) => item.trim())
+                                .filter(Boolean),
+                            }))
+                          }
+                          placeholder="Channel A, Channel B"
+                        />
+                      </label>
+                      <label>
+                        User notes
+                        <input
+                          value={channelContext.userNotes || ''}
+                          onChange={(event) => setChannelContext((value) => ({ ...value, userNotes: event.target.value }))}
+                          placeholder="Any specific direction or constraints"
+                        />
+                      </label>
                     </div>
 
                     <div className="action-row">
@@ -1370,7 +1438,7 @@ function Home() {
                   <div className="journey-header">
                     <span className="chip">Generation Journey</span>
                     <div className="journey-header-actions">
-                      <span className="journey-status">{workflowStep}/6 complete</span>
+                      <span className="journey-status">{workflowStep}/7 complete</span>
                       {journeyFocused && (
                         <button className="btn secondary journey-back-btn" onClick={() => setJourneyFocused(false)}>
                           Change Variables
@@ -1414,7 +1482,19 @@ function Home() {
 
                       {workflowStep === 1 && (
                         <div className="content-stack">
-                          <h3>Step 1: Video Ideas</h3>
+                          <h3>Step 1: Channel Context</h3>
+                          <p>Set your channel variables on the left, then run idea generation to begin the pipeline.</p>
+                          <div className="action-row">
+                            <button className="btn primary" onClick={generateIdeas}>
+                              Continue to Video Ideas
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {workflowStep === 2 && (
+                        <div className="content-stack">
+                          <h3>Step 2: Video Ideas</h3>
                           {!videoIdeas.length ? (
                             <div className="empty-state">
                               <Sparkles className="empty-icon" />
@@ -1445,10 +1525,7 @@ function Home() {
                                 <p>
                                   <strong>Hook angle:</strong> {idea.hook_angle}
                                 </p>
-                                <p>
-                                  <strong>Thumbnail text:</strong> {idea.thumbnail_text}
-                                </p>
-                                <span className="tag">Click score: {idea.click_score}/10</span>
+                                <span className="tag">Click score: {idea.click_score}</span>
                               </article>
                             ))}
                           </div>
@@ -1460,9 +1537,9 @@ function Home() {
                         </div>
                       )}
 
-                      {workflowStep === 2 && titleOptions && (
+                      {workflowStep === 3 && titleOptions && (
                         <div className="content-stack">
-                          <h3>Step 2: Potential Titles</h3>
+                          <h3>Step 3: Potential Titles</h3>
                           <div className="card-grid">
                             {titleOptions.titles.map((title) => (
                               <article
@@ -1498,14 +1575,14 @@ function Home() {
                         </div>
                       )}
 
-                      {workflowStep === 3 && outlineBlocks.length > 0 && (
+                      {workflowStep === 4 && outlineBlocks.length > 0 && (
                         <div className="content-stack">
-                          <h3>Step 3: Outline</h3>
+                          <h3>Step 4: Outline</h3>
                           <div className="card-grid">
                             {outlineBlocks.map((section) => (
-                              <article className="result-card" key={section.id}>
-                                <h4>{section.title}</h4>
-                                <p>{section.text}</p>
+                              <article className="result-card" key={section.section}>
+                                <h4>{section.section}</h4>
+                                <p>{section.content}</p>
                               </article>
                             ))}
                           </div>
@@ -1517,28 +1594,18 @@ function Home() {
                         </div>
                       )}
 
-                      {workflowStep === 4 && scriptDraft && (
+                      {workflowStep === 5 && scriptDraft && (
                         <div className="content-stack">
-                          <h3>Step 4: Full Script</h3>
+                          <h3>Step 5: Full Script</h3>
                           <article className="script-panel">
                             <h4>Title</h4>
-                            <p>{scriptDraft.title}</p>
-                            <h4>Thumbnail Text</h4>
-                            <p>{scriptDraft.thumbnail_text}</p>
-                            <h4>Hook</h4>
-                            <p>{scriptDraft.hook}</p>
-                            <h4>Intro</h4>
-                            <p>{scriptDraft.intro}</p>
-                            {scriptDraft.body_sections.map((section, index) => (
-                              <div key={`${section.heading}-${index}`}>
-                                <h4>{section.heading}</h4>
-                                <p>{section.content}</p>
+                            <p>{scriptDraft.script.title}</p>
+                            {scriptDraft.script.sections.map((section, index) => (
+                              <div key={`${section.section}-${index}`}>
+                                <h4>{section.section}</h4>
+                                <p>{section.text}</p>
                               </div>
                             ))}
-                            <h4>CTA</h4>
-                            <p>{scriptDraft.cta}</p>
-                            <h4>Conclusion</h4>
-                            <p>{scriptDraft.conclusion}</p>
                           </article>
                           <div className="action-row">
                             <button className="btn secondary" onClick={copyScript}>
@@ -1550,19 +1617,19 @@ function Home() {
                             <button className="btn secondary" onClick={() => void generateScript()}>
                               Regenerate Script
                             </button>
-                            <button className="btn primary" onClick={() => setWorkflowStep(5)}>
+                            <button className="btn primary" onClick={() => setWorkflowStep(6)}>
                               Continue to Polish
                             </button>
                           </div>
                         </div>
                       )}
 
-                      {workflowStep === 5 && scriptDraft && (
+                      {workflowStep === 6 && scriptDraft && (
                         <div className="content-stack">
-                          <h3>Step 5: Polish Chatbot</h3>
+                          <h3>Step 6: Polish</h3>
                           <div className="chat-thread">
                             {polishChat.length === 0 ? (
-                              <p className="muted-note">Send a command like: "Tighten the intro and make the CTA stronger."</p>
+                              <p className="muted-note">Choose a polish mode to rewrite the script safely.</p>
                             ) : (
                               polishChat.map((message) => (
                                 <article key={message.id} className={`result-card ${message.role === 'assistant' ? 'assistant' : ''}`}>
@@ -1573,26 +1640,34 @@ function Home() {
                             )}
                           </div>
                           <div className="action-row wrap">
-                            <input
-                              value={polishCommand}
-                              onChange={(event) => setPolishCommand(event.target.value)}
-                              placeholder="Ask AI to amend any part of the script..."
-                            />
+                            <select value={polishMode} onChange={(event) => setPolishMode(event.target.value as typeof polishMode)}>
+                              <option value="retention">Improve retention</option>
+                              <option value="shorten">Shorten script</option>
+                              <option value="expand">Expand script</option>
+                              <option value="simplify">Simplify language</option>
+                              <option value="intensify">Intensify storytelling</option>
+                            </select>
                             <button className="btn primary" onClick={sendPolishCommand}>
-                              Send Command
+                              Apply Polish
                             </button>
                           </div>
+                          {polishedScriptText ? (
+                            <article className="result-card">
+                              <h4>Polished Script</h4>
+                              <p style={{ whiteSpace: 'pre-wrap' }}>{polishedScriptText}</p>
+                            </article>
+                          ) : null}
                           <div className="action-row">
-                            <button className="btn secondary" onClick={() => setWorkflowStep(6)}>
+                            <button className="btn secondary" onClick={() => setWorkflowStep(7)}>
                               Continue to Download
                             </button>
                           </div>
                         </div>
                       )}
 
-                      {workflowStep === 6 && scriptDraft && (
+                      {workflowStep === 7 && scriptDraft && (
                         <div className="content-stack">
-                          <h3>Step 6: Download / Export</h3>
+                          <h3>Step 7: Download / Export</h3>
                           <p>Export your final script and keep it in the Scripts Library.</p>
                           <div className="action-row">
                             <button className="btn secondary" onClick={copyScript}>
@@ -1606,9 +1681,9 @@ function Home() {
                       )}
 
                       {workflowStep > 1 &&
-                      ((workflowStep === 2 && !titleOptions) ||
-                        (workflowStep === 3 && !outlineBlocks.length) ||
-                        (workflowStep >= 4 && !scriptDraft)) ? (
+                      ((workflowStep === 3 && !titleOptions) ||
+                        (workflowStep === 4 && !outlineBlocks.length) ||
+                        (workflowStep >= 5 && !scriptDraft)) ? (
                         <div className="empty-state">
                           <Sparkles className="empty-icon" />
                           <h3>Continue the guided flow</h3>
