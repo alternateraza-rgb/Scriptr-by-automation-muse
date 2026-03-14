@@ -4,66 +4,92 @@ import type { ChannelContext, OutlineSection, VideoIdea } from './types.mts'
 type OutlineInput = {
   context: ChannelContext
   selectedIdea: VideoIdea
-  selectedHook: string
   selectedTitle: string
-  selectedThumbnail: string
-  sectionToRegenerate?: string
+  audience?: string
+  tone?: string
+  videoLength?: string
 }
 
-const defaultSections = ['Hook', 'Intro', 'Section 1', 'Section 2', 'Section 3', 'Proof / examples', 'CTA placement', 'Conclusion']
+const SYSTEM_PROMPT = 'You are a professional YouTube script writer creating high-retention scripts for faceless channels.'
 
-const outlinePrompt = ({
-  context,
-  selectedIdea,
-  selectedHook,
-  selectedTitle,
-  selectedThumbnail,
-  sectionToRegenerate,
-}: OutlineInput) => `You are Scriptr, a retention-focused YouTube script architect.
-Return JSON only.
+const sectionOrder = ['Hook', 'Curiosity Gap', 'Setup', 'Escalation', 'New Information', 'Mid Reset', 'Reveal', 'Payoff', 'CTA']
 
-Return shape:
+const normalizeSectionName = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim()
+
+const outlinePrompt = ({ context, selectedIdea, selectedTitle, audience, tone, videoLength }: OutlineInput) => `Channel profile context:
+${JSON.stringify(context, null, 2)}
+
+Selected idea:
+${JSON.stringify(selectedIdea, null, 2)}
+
+Selected title:
+${selectedTitle}
+
+Audience override:
+${audience || context.targetAudience || context.audience || ''}
+
+Tone override:
+${tone || context.tone || ''}
+
+Video length:
+${videoLength || context.videoLength || ''}
+
+Task:
+Generate a retention-focused outline with this exact section sequence:
+1 Hook
+2 Curiosity Gap
+3 Setup
+4 Escalation
+5 New Information
+6 Mid-Video Reset
+7 Reveal
+8 Payoff
+9 CTA
+
+Return JSON only in this exact shape:
 {
   "outline": [
-    { "id": "hook", "title": "Hook", "text": "string" },
-    { "id": "intro", "title": "Intro", "text": "string" },
-    { "id": "section_1", "title": "Section 1", "text": "string" },
-    { "id": "section_2", "title": "Section 2", "text": "string" },
-    { "id": "section_3", "title": "Section 3", "text": "string" },
-    { "id": "proof_examples", "title": "Proof / examples", "text": "string" },
-    { "id": "cta_placement", "title": "CTA placement", "text": "string" },
-    { "id": "conclusion", "title": "Conclusion", "text": "string" }
+    { "section": "Hook", "content": "..." },
+    { "section": "Curiosity Gap", "content": "..." },
+    { "section": "Setup", "content": "..." },
+    { "section": "Escalation", "content": "..." },
+    { "section": "New Information", "content": "..." },
+    { "section": "Mid Reset", "content": "..." },
+    { "section": "Reveal", "content": "..." },
+    { "section": "Payoff", "content": "..." },
+    { "section": "CTA", "content": "..." }
   ]
 }
 
 Rules:
-- Keep every section concise and actionable.
-- Prioritize retention and pacing.
-- Build continuity between sections.
-${sectionToRegenerate ? `- Strongly improve and rewrite only the "${sectionToRegenerate}" section.` : ''}
-
-Channel Context:
-${JSON.stringify(context, null, 2)}
-
-Selections:
-${JSON.stringify({ selectedIdea, selectedHook, selectedTitle, selectedThumbnail }, null, 2)}
-`
+- Keep each section concise and narration-friendly.
+- Ensure pacing escalates.
+- No markdown.`
 
 export const generateOutline = async (input: OutlineInput): Promise<{ outline: OutlineSection[] }> => {
-  const output = (await runAiJson(outlinePrompt(input))) as { outline?: OutlineSection[] }
+  const output = (await runAiJson({
+    systemPrompt: SYSTEM_PROMPT,
+    userPrompt: outlinePrompt(input),
+    temperature: 0.7,
+  })) as { outline?: Partial<OutlineSection>[] }
 
   const outline = Array.isArray(output.outline) ? output.outline : []
-
-  if (!outline.length) {
-    throw new Error('Outline generation returned no sections.')
+  const indexed = new Map<string, string>()
+  for (const item of outline) {
+    if (!item || typeof item !== 'object') {
+      continue
+    }
+    const section = typeof item.section === 'string' ? item.section : ''
+    const content = typeof item.content === 'string' ? item.content : ''
+    if (section && content) {
+      indexed.set(normalizeSectionName(section), content.trim())
+    }
   }
 
-  const normalized = outline.map((item, index) => ({
-    id: item.id || defaultSections[index]?.toLowerCase().replace(/\s+/g, '_') || `section_${index + 1}`,
-    title: item.title || defaultSections[index] || `Section ${index + 1}`,
-    text: item.text || '',
-    locked: false,
+  const normalized = sectionOrder.map((section) => ({
+    section,
+    content: indexed.get(normalizeSectionName(section)) || indexed.get(normalizeSectionName(section === 'Mid Reset' ? 'Mid-Video Reset' : section)) || '',
   }))
 
-  return { outline: normalized.slice(0, 8) }
+  return { outline: normalized }
 }

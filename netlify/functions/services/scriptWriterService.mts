@@ -4,11 +4,15 @@ import type { ChannelContext, GeneratedScript, OutlineSection, VideoIdea } from 
 type ScriptWriterInput = {
   context: ChannelContext
   selectedIdea: VideoIdea
-  selectedHook: string
   selectedTitle: string
-  selectedThumbnail: string
-  selectedOutline: OutlineSection[]
+  generatedOutline: OutlineSection[]
+  tone?: string
+  videoLength?: string
 }
+
+const SYSTEM_PROMPT = 'You are a professional YouTube script writer creating high-retention scripts for faceless channels.'
+
+const sectionOrder = ['Hook', 'Curiosity Gap', 'Setup', 'Escalation', 'New Information', 'Mid Reset', 'Reveal', 'Payoff', 'CTA']
 
 const estimateWordTarget = (videoLength: string) => {
   const matches = videoLength.match(/\d+/g)?.map((value) => Number(value)).filter((value) => !Number.isNaN(value)) || []
@@ -20,48 +24,99 @@ const estimateWordTarget = (videoLength: string) => {
   return Math.max(700, Math.round(averageMinutes * 135))
 }
 
-const scriptPrompt = (input: ScriptWriterInput) => `You are Scriptr, a YouTube script writer.
-Return JSON only.
+const scriptPrompt = (input: ScriptWriterInput) => `Channel profile context:
+${JSON.stringify(input.context, null, 2)}
 
-Return shape:
+Selected idea:
+${JSON.stringify(input.selectedIdea, null, 2)}
+
+Selected title:
+${input.selectedTitle}
+
+Generated outline:
+${JSON.stringify(input.generatedOutline, null, 2)}
+
+Tone override:
+${input.tone || input.context.tone || ''}
+
+Video length:
+${input.videoLength || input.context.videoLength || ''}
+
+Task:
+Generate a complete narration-ready YouTube script that follows the outline sections exactly.
+Use short sentences and strong curiosity pacing.
+
+Return JSON only in this exact shape:
 {
-  "title": "string",
-  "thumbnail_text": "string",
-  "hook": "string",
-  "intro": "string",
-  "body_sections": [
-    { "heading": "Section 1", "content": "string" },
-    { "heading": "Section 2", "content": "string" },
-    { "heading": "Section 3", "content": "string" }
-  ],
-  "cta": "string",
-  "conclusion": "string"
+  "script": {
+    "title": "...",
+    "sections": [
+      { "section": "Hook", "text": "..." },
+      { "section": "Curiosity Gap", "text": "..." },
+      { "section": "Setup", "text": "..." },
+      { "section": "Escalation", "text": "..." },
+      { "section": "New Information", "text": "..." },
+      { "section": "Mid Reset", "text": "..." },
+      { "section": "Reveal", "text": "..." },
+      { "section": "Payoff", "text": "..." },
+      { "section": "CTA", "text": "..." }
+    ]
+  }
 }
 
 Rules:
-- Script must match requested tone and format.
-- Body sections should align to outline sequence.
-- Keep flow tight and spoken-word ready for narration.
-- Target around ${estimateWordTarget(input.context.videoLength)} words so the narration fits ${input.context.videoLength}.
-
-Generation Input:
-${JSON.stringify(input, null, 2)}
+- Keep flow tight and narration-friendly.
+- Target around ${estimateWordTarget(input.videoLength || input.context.videoLength)} words.
+- No markdown.
+- Do not add extra sections.
 `
 
-export const generateFullScript = async (input: ScriptWriterInput): Promise<GeneratedScript> => {
-  const output = (await runAiJson(scriptPrompt(input))) as Partial<GeneratedScript>
+const toScriptFromOutline = (input: ScriptWriterInput): GeneratedScript => ({
+  script: {
+    title: input.selectedTitle,
+    sections: sectionOrder.map((section) => ({
+      section,
+      text:
+        input.generatedOutline.find((item) => item.section.toLowerCase() === section.toLowerCase())?.content ||
+        `Develop this section for ${input.selectedTitle}.`,
+    })),
+  },
+})
 
-  if (!output.title || !output.hook || !output.intro || !output.cta || !output.conclusion) {
-    throw new Error('Script generation returned incomplete sections.')
+export const generateFullScript = async (input: ScriptWriterInput): Promise<GeneratedScript> => {
+  const output = (await runAiJson({
+    systemPrompt: SYSTEM_PROMPT,
+    userPrompt: scriptPrompt(input),
+    temperature: 0.7,
+  })) as Partial<GeneratedScript>
+
+  const rawScript = output.script
+  if (!rawScript || typeof rawScript !== 'object') {
+    return toScriptFromOutline(input)
   }
 
+  const rawSections = Array.isArray(rawScript.sections) ? rawScript.sections : []
+  const sectionMap = new Map<string, string>()
+  for (const item of rawSections) {
+    if (!item || typeof item !== 'object') {
+      continue
+    }
+    const section = typeof item.section === 'string' ? item.section.trim() : ''
+    const text = typeof item.text === 'string' ? item.text.trim() : ''
+    if (section && text) {
+      sectionMap.set(section.toLowerCase(), text)
+    }
+  }
+
+  const title = typeof rawScript.title === 'string' && rawScript.title.trim() ? rawScript.title.trim() : input.selectedTitle
+
   return {
-    title: output.title,
-    thumbnail_text: output.thumbnail_text || input.selectedThumbnail,
-    hook: output.hook,
-    intro: output.intro,
-    body_sections: Array.isArray(output.body_sections) ? output.body_sections : [],
-    cta: output.cta,
-    conclusion: output.conclusion,
+    script: {
+      title,
+      sections: sectionOrder.map((section) => ({
+        section,
+        text: sectionMap.get(section.toLowerCase()) || '',
+      })),
+    },
   }
 }

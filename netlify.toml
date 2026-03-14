@@ -2,5 +2,6 @@
 ANTHROPIC_API_KEY = "Add your Anthropic API key here"
 
 [build]
+functions = "netlify/functions"
 command = "npm run build"
 publish = "dist/client"

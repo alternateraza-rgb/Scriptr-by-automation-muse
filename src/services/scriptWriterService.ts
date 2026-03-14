@@ -4,12 +4,22 @@ import type { ChannelContext, GeneratedScript, OutlineSection, VideoIdea } from 
 type ScriptPayload = {
   channelContext: ChannelContext
   selectedIdea: VideoIdea
-  selectedHook: string
   selectedTitle: string
-  selectedThumbnail: string
-  selectedOutline: OutlineSection[]
+  generatedOutline: OutlineSection[]
+  tone?: string
+  videoLength?: string
 }
 
 export async function generateScript(payload: ScriptPayload): Promise<GeneratedScript> {
-  return callAiFunction<GeneratedScript>('generateScript', payload)
+  const data = await callAiFunction<Partial<GeneratedScript>>('generateScript', payload)
+  if (!data || typeof data !== 'object' || !data.script) {
+    throw new Error('Script generation returned incomplete data.')
+  }
+
+  return {
+    script: {
+      title: data.script.title || payload.selectedTitle,
+      sections: Array.isArray(data.script.sections) ? data.script.sections : [],
+    },
+  }
 }
