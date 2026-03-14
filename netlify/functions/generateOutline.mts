@@ -1,12 +1,24 @@
 import { generateOutline } from './services/scriptGenerationService.mts'
-import { success, failure, parseJsonBody } from './utils/response.js'
+import { failure, parseJsonBody, success } from './utils/response.mts'
+import type { ChannelContext, OutlineSection, VideoIdea } from './services/types.mts'
 
-export async function handler(event) {
+type OutlineRequest = {
+  channelContext?: ChannelContext
+  selectedIdea?: VideoIdea
+  selectedTitle?: string
+  audience?: string
+  tone?: string
+  videoLength?: string
+  selectedOutline?: OutlineSection[]
+  generatedOutline?: OutlineSection[]
+}
+
+export default async (req: Request) => {
   try {
-    if (event.httpMethod !== 'POST') {
+    if (req.method !== 'POST') {
       return failure('Method not allowed. Use POST.', 405)
     }
-    const body = parseJsonBody(event)
+    const body = await parseJsonBody<OutlineRequest>(req)
 
     if (!body.channelContext || !body.selectedIdea?.title || !body.selectedTitle) {
       return failure('Missing required payload for outline generation.', 400)
