@@ -100,6 +100,12 @@ label {
   transform: translateY(-1px);
 }
 
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .btn.primary {
   background: linear-gradient(120deg, var(--red), var(--red-bright));
   color: var(--text);
@@ -320,7 +326,7 @@ label {
 .script-card {
   border-radius: 14px;
   border: 1px solid #2d2d2d;
-  background: #121212;
+  background: radial-gradient(circle at top left, rgba(255, 51, 71, 0.12), transparent 48%), #121212;
   padding: 0.9rem;
   transition: transform 0.2s ease, border-color 0.2s ease;
 }
@@ -338,6 +344,19 @@ label {
 .feature-card h3,
 .result-card h4 {
   margin-bottom: 0.35rem;
+}
+
+.result-card.active {
+  border-color: #ff5a69;
+}
+
+.clickable-card {
+  cursor: pointer;
+}
+
+.result-card.assistant {
+  border-color: #3e3e3e;
+  background: radial-gradient(circle at top left, rgba(255, 51, 71, 0.06), transparent 50%), #151515;
 }
 
 .benefit-strip {
@@ -784,6 +803,24 @@ label {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   gap: 0.8rem;
+  align-items: start;
+}
+
+.generation-layout.journey-focused {
+  grid-template-columns: 1fr;
+}
+
+.variables-panel {
+  align-content: start;
+}
+
+.journey-panel {
+  min-height: 72vh;
+  align-content: start;
+}
+
+.recent-scripts-panel {
+  grid-column: 2;
 }
 
 .form-grid {
@@ -796,16 +833,45 @@ label {
 
 .tab-pill {
   border: 1px solid #343434;
-  background: #141414;
+  background: linear-gradient(140deg, #171717, #101010);
   color: #dfdfdf;
   border-radius: 999px;
-  padding: 0.36rem 0.72rem;
+  padding: 0.42rem 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   cursor: pointer;
 }
 
 .tab-pill.active {
   border-color: #ff5969;
-  background: rgba(225, 29, 46, 0.18);
+  background: linear-gradient(140deg, rgba(225, 29, 46, 0.34), rgba(255, 51, 71, 0.2));
+  color: #fff;
+}
+
+.journey-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.journey-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.journey-back-btn {
+  padding-inline: 0.65rem;
+}
+
+.journey-status {
+  font-size: 0.78rem;
+  color: #ffc8ce;
+  border: 1px solid rgba(255, 89, 105, 0.35);
+  border-radius: 999px;
+  padding: 0.3rem 0.6rem;
+  background: rgba(225, 29, 46, 0.14);
 }
 
 .content-stack {
@@ -813,12 +879,24 @@ label {
   gap: 0.75rem;
 }
 
+.chat-thread {
+  display: grid;
+  gap: 0.6rem;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.muted-note {
+  color: #b1b1b1;
+  margin: 0;
+}
+
 .card-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
 .card-grid.three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
 .script-panel {
@@ -952,6 +1030,14 @@ label {
   .auth-layout,
   .generation-layout {
     grid-template-columns: 1fr;
+  }
+
+  .recent-scripts-panel {
+    grid-column: auto;
+  }
+
+  .journey-panel {
+    min-height: auto;
   }
 
   .benefit-strip,

@@ -7,6 +7,43 @@ export interface Message {
   content: string
 }
 
+type ScriptrMode = 'ideation' | 'script' | 'chat-adjust'
+
+type ScriptrInput = {
+  mode: ScriptrMode
+  profile: {
+    channelName: string
+    niche: string
+    audience: string
+    tone: string
+    frequency: string
+    ctaStyle: string
+  }
+  form: {
+    videoTopic: string
+    niche: string
+    audience: string
+    tone: string
+    hookStyle: string
+    ctaGoal: string
+    competitorInspiration: string
+    sourceNotes: string
+    outputStyle: string
+    customInstructions: string
+    videoType: string
+    videoLength: string
+  }
+  scriptContext?: {
+    title: string
+    thumbnailText: string
+    hook: string
+    body: string
+    cta: string
+  }
+  chatHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
+  userMessage?: string
+}
+
 const DEFAULT_SYSTEM_PROMPT = `You are TanStack Chat, an AI assistant using Markdown for clear and structured responses. Format your responses following these guidelines:
 
 1. Use headers for sections:
@@ -49,6 +86,115 @@ const DEFAULT_SYSTEM_PROMPT = `You are TanStack Chat, an AI assistant using Mark
 
 Keep responses concise and well-structured. Use appropriate Markdown formatting to enhance readability and understanding.`
 
+const createAnthropicClient = () => {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  return new Anthropic({
+    ...(apiKey ? { apiKey } : {}),
+    timeout: 45000,
+  })
+}
+
+const extractTextFromContent = (content: Anthropic.Message['content']) =>
+  content
+    .map((item) => {
+      if ('text' in item && typeof item.text === 'string') {
+        return item.text
+      }
+      return ''
+    })
+    .join('\n')
+
+const extractJSON = (raw: string) => {
+  const fenced = raw.match(/```json\s*([\s\S]*?)```/i)
+  const candidate = fenced?.[1]?.trim() || raw.trim()
+  const start = candidate.indexOf('{')
+  const end = candidate.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error('No JSON object found in AI response.')
+  }
+  return JSON.parse(candidate.slice(start, end + 1))
+}
+
+const getModePrompt = (mode: ScriptrMode) => {
+  if (mode === 'ideation') {
+    return `You are Scriptr, a YouTube strategy copilot.
+Return strict JSON with this shape:
+{
+  "overview": {
+    "topicIdea": "string",
+    "angleIdea": "string",
+    "thumbnailText": "string",
+    "clickPotential": "string score like 8.7/10"
+  },
+  "titles": [{ "text": "string", "style": "string" }],
+  "hooks": [{ "label": "string", "text": "string" }]
+}
+Generate 4 titles and 3 hooks. No markdown.`
+  }
+
+  if (mode === 'script') {
+    return `You are Scriptr, a YouTube scripting copilot.
+Return strict JSON with this shape:
+{
+  "outline": ["string"],
+  "fullScript": {
+    "title": "string",
+    "thumbnailText": "string",
+    "hook": "string",
+    "body": "string",
+    "cta": "string"
+  },
+  "ctas": ["string"],
+  "repurpose": ["string"]
+}
+Generate 6-8 outline steps, 3 CTAs, and 4 repurpose actions. No markdown.`
+  }
+
+  return `You are Scriptr, a collaborative script editor.
+Return strict JSON with this shape:
+{
+  "assistantReply": "string",
+  "updatedScript": {
+    "title": "string",
+    "thumbnailText": "string",
+    "hook": "string",
+    "body": "string",
+    "cta": "string"
+  }
+}
+Apply the user's change requests directly to the script. Keep the assistant reply concise. No markdown.`
+}
+
+export const generateScriptrContent = createServerFn({ method: 'POST' })
+  .inputValidator((d: ScriptrInput) => d)
+  .handler(async ({ data }) => {
+    const anthropic = createAnthropicClient()
+    const system = getModePrompt(data.mode)
+
+    const messages: Array<{ role: 'user'; content: string }> = [
+      {
+        role: 'user',
+        content: JSON.stringify({
+          profile: data.profile,
+          form: data.form,
+          scriptContext: data.scriptContext,
+          chatHistory: data.chatHistory,
+          userMessage: data.userMessage,
+        }),
+      },
+    ]
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 2400,
+      system,
+      messages,
+    })
+
+    const rawText = extractTextFromContent(response.content)
+    return extractJSON(rawText)
+  })
+
 // Non-streaming implementation
 export const genAIResponse = createServerFn({ method: 'GET', response: 'raw' })
   .inputValidator(
@@ -59,23 +205,7 @@ export const genAIResponse = createServerFn({ method: 'GET', response: 'raw' })
   )
   // .middleware([loggingMiddleware])
   .handler(async ({ data }) => {
-    // Check for API key in environment variables
-    // This should ONLY use server-side environment variables (no VITE_ prefix)
-    const apiKey = process.env.ANTHROPIC_API_KEY
-
-    if (!apiKey) {
-      throw new Error(
-        'Missing API key: Please set ANTHROPIC_API_KEY in your environment variables or .env file.'
-      )
-    }
-
-    // Create Anthropic client with proper configuration
-    // Don't set baseURL - Netlify AI Gateway will intercept requests to api.anthropic.com automatically
-    const anthropic = new Anthropic({
-      apiKey,
-      // Add proper timeout to avoid connection issues
-      timeout: 30000 // 30 seconds timeout
-    })
+    const anthropic = createAnthropicClient()
 
     // Filter out error messages and empty messages
     const formattedMessages = data.messages
