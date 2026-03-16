@@ -52,7 +52,9 @@ type ChannelProfile = {
   niche: string
   description: string
   audience: string
+  ageRange?: string
   tone: string
+  uploadFrequency?: string
   length: string
   videoFormat?: string
   topicFocus?: string
@@ -368,7 +370,9 @@ const toChannelProfile = (row: ChannelProfileRow): ChannelProfile => ({
   niche: row.niche || 'General',
   description: `Channel strategy for ${row.channel_name || 'your channel'} focused on ${row.niche || 'General'} content.`,
   audience: row.audience || 'Audience profile not set yet.',
+  ageRange: row.age_range || undefined,
   tone: row.tone || 'Conversational',
+  uploadFrequency: row.upload_frequency || undefined,
   length: row.video_length || '8-12 minutes',
   videoFormat: row.video_format || undefined,
   topicFocus: row.topic_focus || undefined,
@@ -394,7 +398,9 @@ const buildPrimaryProfile = (onboarding: OnboardingState): ChannelProfile => ({
     getPrimaryNiche(onboarding)
   } content.`,
   audience: onboarding.audienceDescription || 'Audience profile not set yet.',
+  ageRange: onboarding.ageRange || undefined,
   tone: getPrimaryTone(onboarding),
+  uploadFrequency: onboarding.uploadFrequency || undefined,
   length: '8-12 minutes',
   videoFormat: onboarding.contentStyle || 'Long-form faceless videos',
   targetAudience: onboarding.audienceDescription || undefined,
@@ -482,6 +488,7 @@ function Home() {
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
   const [sessionLoading, setSessionLoading] = useState(true)
+  const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false)
 
   const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' })
   const [forgotEmail, setForgotEmail] = useState('')
@@ -547,7 +554,9 @@ function Home() {
     channel_name: onboardingState.channelName || context.channelName || 'Untitled Channel',
     niche: getPrimaryNiche(onboardingState),
     audience: onboardingState.audienceDescription || context.targetAudience || context.audience || null,
+    age_range: onboardingState.ageRange || null,
     tone: getPrimaryTone(onboardingState),
+    upload_frequency: onboardingState.uploadFrequency || null,
     video_length: context.videoLength || '8-12 minutes',
     video_format: context.videoFormat || onboardingState.contentStyle || null,
     topic_focus: context.videoTopicIdea || null,
@@ -562,7 +571,7 @@ function Home() {
   })
 
   const saveOnboardingSnapshot = async (userId: string, onboardingState: OnboardingState, completedAt?: string | null) => {
-    await onboardingService.upsert(toOnboardingUpsertPayload(userId, onboardingState, completedAt))
+    const onboardingRow = await onboardingService.upsert(toOnboardingUpsertPayload(userId, onboardingState, completedAt))
 
     const defaultProfile = await channelProfileService.upsertDefault(buildDefaultProfileInput(userId, onboardingState, channelContext))
     setProfiles((current) => {
@@ -570,6 +579,8 @@ function Home() {
       const rest = current.filter((profile) => profile.id !== mapped.id)
       return [mapped, ...rest]
     })
+
+    return { onboardingRow, defaultProfile }
   }
 
   const clearWorkspaceState = () => {
@@ -580,6 +591,7 @@ function Home() {
     setScripts(INITIAL_SCRIPTS)
     setSelectedScriptId('')
     setUsageStats(null)
+    setIsCompletingOnboarding(false)
     setAutosavedScriptId(null)
     channelSyncSignatureRef.current = ''
     onboardingSyncErrorShownRef.current = false
@@ -797,7 +809,7 @@ function Home() {
   }, [primaryProfile, onboarding.contentStyle, onboarding.level, onboarding.painPoints, onboarding.primaryGoal, onboarding.stage])
 
   useEffect(() => {
-    if (!authUserId || screen !== 'onboarding') {
+    if (!authUserId || screen !== 'onboarding' || isCompletingOnboarding) {
       return
     }
 
@@ -813,7 +825,7 @@ function Home() {
     }, 350)
 
     return () => clearTimeout(timeout)
-  }, [authUserId, onboarding, screen])
+  }, [authUserId, isCompletingOnboarding, onboarding, screen])
 
   useEffect(() => {
     if (!authUserId || screen !== 'app' || !/^[0-9a-f-]{36}$/i.test(primaryProfile.id)) {
@@ -994,18 +1006,47 @@ function Home() {
     }
 
     if (onboardingStep === ONBOARDING_TOTAL_STEPS) {
-      if (authUserId) {
-        try {
-          await saveOnboardingSnapshot(authUserId, onboarding, new Date().toISOString())
-        } catch {
-          openToast('Unable to complete onboarding right now.')
+      if (isCompletingOnboarding) {
+        return
+      }
+
+      if (!authUserId) {
+        openToast('Session expired. Please sign in again.')
+        setScreen('signin')
+        return
+      }
+
+      setIsCompletingOnboarding(true)
+      try {
+        const session = await authService.getSession()
+        if (!session?.user?.id) {
+          openToast('Session expired. Please sign in again.')
+          setScreen('signin')
           return
         }
+
+        const sessionUserId = session.user.id
+        if (sessionUserId !== authUserId) {
+          setAuthUserId(sessionUserId)
+        }
+
+        const completedAt = new Date().toISOString()
+        const { onboardingRow } = await saveOnboardingSnapshot(sessionUserId, onboarding, completedAt)
+        const normalizedOnboarding = toOnboardingState(onboardingRow)
+        if (!onboardingRow.completed_at) {
+          throw new Error('Onboarding completion was not persisted.')
+        }
+
+        setOnboarding(normalizedOnboarding)
+        setActiveNav('dashboard')
+        setOnboardingStep(ONBOARDING_TOTAL_STEPS)
+        setScreen('app')
+        openToast('Workspace ready. Start building your channel system.')
+      } catch {
+        openToast('Unable to complete onboarding right now.')
+      } finally {
+        setIsCompletingOnboarding(false)
       }
-      setActiveNav('dashboard')
-      setOnboardingStep(ONBOARDING_TOTAL_STEPS)
-      setScreen('app')
-      openToast('Workspace ready. Start building your channel system.')
       return
     }
 
@@ -1833,10 +1874,10 @@ function Home() {
 
           {onboardingStep > 1 && onboardingStep < ONBOARDING_TOTAL_STEPS && (
             <div className="onboarding-actions">
-              <button className="btn secondary" onClick={previousOnboarding}>
+              <button type="button" className="btn secondary" onClick={previousOnboarding}>
                 Previous
               </button>
-              <button className="btn primary" onClick={nextOnboarding}>
+              <button type="button" className="btn primary" onClick={nextOnboarding}>
                 Next <ChevronRight className="icon-inline" />
               </button>
             </div>
@@ -1844,8 +1885,8 @@ function Home() {
 
           {onboardingStep === ONBOARDING_TOTAL_STEPS && (
             <div className="onboarding-actions">
-              <button className="btn primary" onClick={nextOnboarding}>
-                Enter Dashboard <ArrowRight className="icon-inline" />
+              <button type="button" className="btn primary" onClick={nextOnboarding} disabled={isCompletingOnboarding}>
+                {isCompletingOnboarding ? 'Entering Dashboard...' : 'Enter Dashboard'} {!isCompletingOnboarding && <ArrowRight className="icon-inline" />}
               </button>
             </div>
           )}

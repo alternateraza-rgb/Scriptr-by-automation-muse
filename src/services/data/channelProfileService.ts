@@ -6,7 +6,9 @@ export type ChannelProfileInput = {
   channel_name: string
   niche: string | null
   audience: string | null
+  age_range: string | null
   tone: string | null
+  upload_frequency: string | null
   video_length: string | null
   video_format: string | null
   topic_focus: string | null
@@ -22,6 +24,8 @@ export type ChannelProfileInput = {
 }
 
 const CONTEXT_FIELDS: Array<keyof ChannelProfileInput> = [
+  'age_range',
+  'upload_frequency',
   'video_format',
   'topic_focus',
   'target_audience',
@@ -63,16 +67,20 @@ export const channelProfileService = {
 
   async upsertDefault(input: ChannelProfileInput) {
     const payload = { ...input, is_default: true }
-    const { data: existing, error: existingError } = await supabase
+    const { data: existingRows, error: existingError } = await supabase
       .from('channel_profiles')
       .select('*')
       .eq('user_id', input.user_id)
       .eq('is_default', true)
-      .maybeSingle<ChannelProfileRow>()
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .returns<ChannelProfileRow[]>()
 
     if (existingError) {
       throw existingError
     }
+
+    const existing = existingRows?.[0] || null
 
     if (existing) {
       const updateDefault = async (updatePayload: Partial<ChannelProfileInput>) =>

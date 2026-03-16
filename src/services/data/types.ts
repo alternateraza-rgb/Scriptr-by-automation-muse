@@ -35,7 +35,9 @@ export type ChannelProfileRow = {
   channel_name: string
   niche: string | null
   audience: string | null
+  age_range: string | null
   tone: string | null
+  upload_frequency: string | null
   video_length: string | null
   video_format: string | null
   topic_focus: string | null
