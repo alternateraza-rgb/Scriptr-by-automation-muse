@@ -1,13 +1,4 @@
 import { createFileRoute } from '@tanstack/react-router'
-import {
-  AuthError,
-  MissingIdentityError,
-  getUser,
-  handleAuthCallback,
-  login,
-  logout,
-  signup,
-} from '@netlify/identity'
 import { useEffect, useMemo, useState } from 'react'
 import {
   generateTitles as requestTitles,
@@ -23,6 +14,13 @@ import type {
   OutlineSection,
   VideoIdea,
 } from '../services/types'
+import { authService } from '../services/data/authService'
+import { profileService } from '../services/data/profileService'
+import { onboardingService } from '../services/data/onboardingService'
+import { channelProfileService } from '../services/data/channelProfileService'
+import { scriptService } from '../services/data/scriptService'
+import { usageStatsService } from '../services/data/usageStatsService'
+import type { ChannelProfileRow, OnboardingResponseRow, ScriptRow, UsageStatsRow } from '../services/data/types'
 import {
   ArrowRight,
   BarChart3,
@@ -44,7 +42,7 @@ import {
   X,
 } from 'lucide-react'
 
-type Screen = 'landing' | 'signin' | 'signup' | 'forgot' | 'onboarding' | 'app'
+type Screen = 'landing' | 'signin' | 'signup' | 'forgot' | 'reset' | 'onboarding' | 'app'
 type NavKey = 'dashboard' | 'generate' | 'scripts' | 'profiles' | 'usage' | 'billing' | 'settings'
 type WorkflowStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
@@ -251,31 +249,6 @@ const FAQ = [
 
 const getPrimaryNiche = (onboarding: OnboardingState) => onboarding.customNiche || onboarding.niche || 'General'
 const getPrimaryTone = (onboarding: OnboardingState) => onboarding.customTone || onboarding.tone || 'Conversational'
-const LEGACY_ONBOARDING_KEY = 'scriptr:onboarding'
-const LEGACY_SCRIPTS_KEY = 'scriptr:scripts'
-const LEGACY_ONBOARDING_COMPLETE_KEY = 'scriptr:onboarding-complete'
-
-const getUserStorageKey = (prefix: string, email?: string) => {
-  const normalized = (email || 'guest').trim().toLowerCase()
-  return `${prefix}:${encodeURIComponent(normalized)}`
-}
-
-const readLocalJson = <T,>(keys: string[]) => {
-  for (const key of keys) {
-    const value = localStorage.getItem(key)
-    if (!value) {
-      continue
-    }
-
-    try {
-      return JSON.parse(value) as T
-    } catch {
-      continue
-    }
-  }
-
-  return null
-}
 
 const parseIsoDate = (value: string | undefined) => {
   if (!value) {
@@ -285,7 +258,30 @@ const parseIsoDate = (value: string | undefined) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-const normalizeSavedScript = (entry: Partial<SavedScript>): SavedScript => {
+const toOnboardingState = (row: OnboardingResponseRow | null): OnboardingState => {
+  if (!row) {
+    return ONBOARDING_DEFAULTS
+  }
+
+  return {
+    channelName: row.channel_name || '',
+    niche: row.niche || '',
+    customNiche: row.custom_niche || '',
+    stage: row.channel_stage || '',
+    incomeGoal: row.income_goal || '',
+    contentStyle: row.content_style || '',
+    uploadFrequency: row.upload_frequency || '',
+    tone: row.tone || '',
+    customTone: row.custom_tone || '',
+    audienceDescription: row.audience || '',
+    ageRange: row.age_range || '',
+    level: row.level || '',
+    painPoints: row.pain_points || '',
+    primaryGoal: row.primary_goal || '',
+  }
+}
+
+const normalizeSavedScript = (entry: Partial<SavedScript> & { id: string }): SavedScript => {
   const createdAt = entry.createdAt || new Date().toISOString()
   const createdDate = parseIsoDate(createdAt) || new Date()
   const title = entry.title || 'Untitled Script'
@@ -293,7 +289,7 @@ const normalizeSavedScript = (entry: Partial<SavedScript>): SavedScript => {
   const fullScriptBody = entry.fullScriptBody || entry.script || 'No script content yet.'
 
   return {
-    id: entry.id || `sc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: entry.id,
     title,
     selectedTitle: entry.selectedTitle || title,
     date:
@@ -312,6 +308,56 @@ const normalizeSavedScript = (entry: Partial<SavedScript>): SavedScript => {
   }
 }
 
+const toSavedScript = (row: ScriptRow, channelName?: string): SavedScript => {
+  const createdDate = parseIsoDate(row.created_at) || new Date()
+  const parsedOutline = (() => {
+    if (!row.outline) {
+      return []
+    }
+    try {
+      const parsed = JSON.parse(row.outline) as Array<{ heading: string; content: string }>
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  })()
+
+  return normalizeSavedScript({
+    id: row.id,
+    title: row.title || 'Untitled Script',
+    selectedTitle: row.selected_title || row.title || 'Untitled Script',
+    date: createdDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at || row.created_at,
+    profile: channelName || 'Primary Profile',
+    niche: row.niche || 'General',
+    tone: row.tone || 'Conversational',
+    type: row.script_type || 'Long-form faceless videos',
+    status: row.status || 'Draft',
+    favorite: Boolean(row.favorite),
+    outlineSections: parsedOutline,
+    fullScriptBody: row.full_script || 'No script content yet.',
+    script: row.full_script || 'No script content yet.',
+  })
+}
+
+const toChannelProfile = (row: ChannelProfileRow): ChannelProfile => ({
+  id: row.id,
+  channelName: row.channel_name || 'Untitled Channel',
+  niche: row.niche || 'General',
+  description: `Channel strategy for ${row.channel_name || 'your channel'} focused on ${row.niche || 'General'} content.`,
+  audience: row.audience || 'Audience profile not set yet.',
+  tone: row.tone || 'Conversational',
+  length: row.video_length || '8-12 minutes',
+  ctaStyle: 'Subscriber CTA',
+  frequency: '1 video per month',
+  monetizationGoal: row.monetization_goal || 'Build sustainable channel revenue',
+  pillars: row.content_pillars || 'Educational explainers',
+  inspirations: row.example_channels || 'Add inspiration channels',
+  brandVoice: row.tone || 'Conversational',
+  isDefault: Boolean(row.is_default),
+})
+
 const buildPrimaryProfile = (onboarding: OnboardingState): ChannelProfile => ({
   id: 'cp-primary',
   channelName: onboarding.channelName || 'Untitled Channel',
@@ -329,6 +375,25 @@ const buildPrimaryProfile = (onboarding: OnboardingState): ChannelProfile => ({
   inspirations: 'Add inspiration channels',
   brandVoice: getPrimaryTone(onboarding),
   isDefault: true,
+})
+
+const toOnboardingUpsertPayload = (userId: string, onboarding: OnboardingState, completedAt?: string | null) => ({
+  user_id: userId,
+  niche: onboarding.niche || null,
+  income_goal: onboarding.incomeGoal || null,
+  channel_stage: onboarding.stage || null,
+  content_style: onboarding.contentStyle || null,
+  audience: onboarding.audienceDescription || null,
+  channel_name: onboarding.channelName || null,
+  upload_frequency: onboarding.uploadFrequency || null,
+  tone: onboarding.tone || null,
+  age_range: onboarding.ageRange || null,
+  level: onboarding.level || null,
+  pain_points: onboarding.painPoints || null,
+  primary_goal: onboarding.primaryGoal || null,
+  custom_niche: onboarding.customNiche || null,
+  custom_tone: onboarding.customTone || null,
+  completed_at: completedAt,
 })
 
 function ScriptrLogo({ compact = false }: { compact?: boolean }) {
@@ -372,17 +437,24 @@ function Home() {
   const [toast, setToast] = useState('')
 
   const [authUser, setAuthUser] = useState<{ name: string; email: string } | null>(null)
+  const [authUserId, setAuthUserId] = useState<string | null>(null)
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [sessionLoading, setSessionLoading] = useState(true)
 
   const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' })
   const [forgotEmail, setForgotEmail] = useState('')
+  const [resetPassword, setResetPassword] = useState('')
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState('')
+  const [forgotStatus, setForgotStatus] = useState('')
+  const [resetStatus, setResetStatus] = useState('')
 
   const [onboarding, setOnboarding] = useState<OnboardingState>(ONBOARDING_DEFAULTS)
+  const [profiles, setProfiles] = useState<ChannelProfile[]>([])
   const [scripts, setScripts] = useState<SavedScript[]>(INITIAL_SCRIPTS)
   const [selectedScriptId, setSelectedScriptId] = useState('')
   const [scriptDetailView, setScriptDetailView] = useState<ScriptDetailView>('title')
-  const [accountHydrated, setAccountHydrated] = useState(false)
+  const [usageStats, setUsageStats] = useState<UsageStatsRow | null>(null)
 
   const [channelContext, setChannelContext] = useState<ChannelContext>({
     channelProfile: '',
@@ -421,92 +493,129 @@ function Home() {
   const [retryAction, setRetryAction] = useState<null | (() => void)>(null)
   const [journeyFocused, setJourneyFocused] = useState(false)
 
-  const primaryProfile = useMemo(() => buildPrimaryProfile(onboarding), [onboarding])
-  const profiles = useMemo(() => [primaryProfile], [primaryProfile])
-  const storageKeys = useMemo(
-    () => ({
-      onboarding: getUserStorageKey('scriptr:onboarding', authUser?.email),
-      scripts: getUserStorageKey('scriptr:scripts', authUser?.email),
-      onboardingComplete: getUserStorageKey('scriptr:onboarding-complete', authUser?.email),
-    }),
-    [authUser?.email],
+  const primaryProfile = useMemo(
+    () => profiles.find((profile) => profile.isDefault) || profiles[0] || buildPrimaryProfile(onboarding),
+    [onboarding, profiles],
   )
-  const hydrateAccountData = (email?: string) => {
-    const onboardingKey = getUserStorageKey('scriptr:onboarding', email)
-    const scriptsKey = getUserStorageKey('scriptr:scripts', email)
 
-    const storedOnboarding = readLocalJson<OnboardingState>(
-      email ? [onboardingKey, LEGACY_ONBOARDING_KEY] : [onboardingKey],
-    )
-    if (storedOnboarding) {
-      setOnboarding(storedOnboarding)
-    } else {
-      setOnboarding(ONBOARDING_DEFAULTS)
-    }
-
-    const storedScripts = readLocalJson<Array<Partial<SavedScript>>>(email ? [scriptsKey, LEGACY_SCRIPTS_KEY] : [scriptsKey])
-    if (Array.isArray(storedScripts)) {
-      const normalized = storedScripts.map((item) => normalizeSavedScript(item))
-      setScripts(normalized)
-      setSelectedScriptId(normalized[0]?.id || '')
-      return
-    }
-
+  const clearWorkspaceState = () => {
+    setAuthUser(null)
+    setAuthUserId(null)
+    setOnboarding(ONBOARDING_DEFAULTS)
+    setProfiles([])
     setScripts(INITIAL_SCRIPTS)
     setSelectedScriptId('')
+    setUsageStats(null)
+    setAutosavedScriptId(null)
+  }
+
+  const hydrateAccountData = async (userId: string, email: string, nameFallback?: string) => {
+    const [profile, onboardingRow, channelRows, scriptRows, usageRow] = await Promise.all([
+      profileService.ensureProfileByIdentity(userId, email, nameFallback ?? null),
+      onboardingService.getByUserId(userId),
+      channelProfileService.listByUserId(userId),
+      scriptService.listByUserId(userId),
+      usageStatsService.ensure(userId),
+    ])
+
+    const effectiveName = profile?.full_name || nameFallback || email.split('@')[0] || 'Creator'
+    const normalizedOnboarding = toOnboardingState(onboardingRow)
+    const mappedProfiles = channelRows.map(toChannelProfile)
+    const effectiveProfiles = mappedProfiles.length ? mappedProfiles : [buildPrimaryProfile(normalizedOnboarding)]
+    const defaultProfileName = effectiveProfiles.find((profileItem) => profileItem.isDefault)?.channelName || effectiveProfiles[0]?.channelName
+    const mappedScripts = scriptRows.map((script) => toSavedScript(script, defaultProfileName))
+
+    setAuthUser({ name: effectiveName, email })
+    setAuthUserId(userId)
+    setOnboarding(normalizedOnboarding)
+    setProfiles(effectiveProfiles)
+    setScripts(mappedScripts)
+    setSelectedScriptId(mappedScripts[0]?.id || '')
+    setUsageStats(usageRow)
+    setScreen(onboardingRow?.completed_at ? 'app' : 'onboarding')
+    setOnboardingStep(onboardingRow?.completed_at ? ONBOARDING_TOTAL_STEPS : 1)
   }
 
   useEffect(() => {
+    let isActive = true
+
     const restoreSession = async () => {
+      setSessionLoading(true)
+      setAuthError('')
       try {
-        const callback = await handleAuthCallback()
-        if (callback?.user) {
-          const userName =
-            callback.user.userMetadata?.full_name ||
-            callback.user.name ||
-            callback.user.email?.split('@')[0] ||
-            'Creator'
-          setAuthUser({ name: userName, email: callback.user.email })
-          hydrateAccountData(callback.user.email)
-          setAccountHydrated(true)
-          const done =
-            localStorage.getItem(getUserStorageKey('scriptr:onboarding-complete', callback.user.email)) ||
-            localStorage.getItem(LEGACY_ONBOARDING_COMPLETE_KEY)
-          setScreen(done ? 'app' : 'onboarding')
+        const session = await authService.getSession()
+        if (!isActive) {
           return
         }
-      } catch {
-        // Callback hash not present or invalid.
-      }
 
-      const user = await getUser()
-      if (user) {
-        const userName = user.userMetadata?.full_name || user.name || user.email?.split('@')[0] || 'Creator'
-        setAuthUser({ name: userName, email: user.email })
-        hydrateAccountData(user.email)
-        setAccountHydrated(true)
-        const done =
-          localStorage.getItem(getUserStorageKey('scriptr:onboarding-complete', user.email)) ||
-          localStorage.getItem(LEGACY_ONBOARDING_COMPLETE_KEY)
-        setScreen(done ? 'app' : 'onboarding')
+        const mode = new URLSearchParams(window.location.search).get('type')
+        if (mode === 'recovery' && session?.user) {
+          setAuthUserId(session.user.id)
+          setAuthUser({
+            name: (session.user.user_metadata?.full_name as string | undefined) || session.user.email?.split('@')[0] || 'Creator',
+            email: session.user.email || '',
+          })
+          setScreen('reset')
+          return
+        }
+
+        if (session?.user && session.user.email) {
+          await hydrateAccountData(
+            session.user.id,
+            session.user.email,
+            (session.user.user_metadata?.full_name as string | undefined) || undefined,
+          )
+        } else {
+          clearWorkspaceState()
+          setScreen('landing')
+        }
+      } catch {
+        if (!isActive) {
+          return
+        }
+        clearWorkspaceState()
+        setScreen('signin')
+        setAuthError('Failed to restore session. Please sign in again.')
+      } finally {
+        if (isActive) {
+          setSessionLoading(false)
+        }
+      }
+    }
+
+    void restoreSession()
+
+    const {
+      data: { subscription },
+    } = authService.onAuthStateChange((event, session) => {
+      if (!isActive) {
         return
       }
 
-      setOnboarding(ONBOARDING_DEFAULTS)
-      setScripts(INITIAL_SCRIPTS)
-      setSelectedScriptId('')
-      setAccountHydrated(false)
-    }
+      if (event === 'PASSWORD_RECOVERY') {
+        setScreen('reset')
+        setResetStatus('')
+        setAuthError('')
+        return
+      }
 
-    restoreSession()
+      if (session?.user && session.user.email) {
+        void hydrateAccountData(
+          session.user.id,
+          session.user.email,
+          (session.user.user_metadata?.full_name as string | undefined) || undefined,
+        )
+      } else if (event === 'SIGNED_OUT') {
+        clearWorkspaceState()
+        setScreen('signin')
+      }
+    })
+
+    return () => {
+      isActive = false
+      subscription.unsubscribe()
+    }
   }, [])
-
-  useEffect(() => {
-    if (!authUser?.email || !accountHydrated) {
-      return
-    }
-    localStorage.setItem(storageKeys.scripts, JSON.stringify(scripts))
-  }, [accountHydrated, authUser?.email, scripts, storageKeys.scripts])
 
   useEffect(() => {
     if (!toast) {
@@ -549,7 +658,16 @@ function Home() {
     }))
   }, [primaryProfile, onboarding.level, onboarding.painPoints, onboarding.primaryGoal, onboarding.stage])
 
-  const selectedProfile = profiles[0]
+  useEffect(() => {
+    if (sessionLoading) {
+      return
+    }
+    if (!authUserId && (screen === 'app' || screen === 'onboarding' || screen === 'reset')) {
+      setScreen('signin')
+    }
+  }, [authUserId, screen, sessionLoading])
+
+  const selectedProfile = primaryProfile
 
   const selectedScript = useMemo(
     () => scripts.find((item) => item.id === selectedScriptId) || scripts[0],
@@ -615,43 +733,32 @@ function Home() {
 
     try {
       if (mode === 'signup') {
-        const user = await signup(authForm.email, authForm.password, { full_name: authForm.name })
-        const userName = user.userMetadata?.full_name || authForm.name || 'Creator'
+        const signupResult = await authService.signUp(authForm.email, authForm.password, authForm.name)
 
-        setAuthUser({ name: userName, email: user.email })
-        hydrateAccountData(user.email)
-        setAccountHydrated(true)
-        setScreen('onboarding')
-        openToast(
-          user.emailVerified ? 'Account ready. Personalizing your workspace.' : 'Account created. Check email to confirm.',
-        )
+        if (signupResult.session?.user && signupResult.user?.email) {
+          await hydrateAccountData(signupResult.session.user.id, signupResult.user.email, authForm.name)
+          setScreen('onboarding')
+          openToast('Account created. Personalizing your workspace.')
+        } else {
+          setScreen('signin')
+          openToast('Account created. Check your email to confirm your account before signing in.')
+        }
       } else {
-        const user = await login(authForm.email, authForm.password)
-        const userName = user.userMetadata?.full_name || user.name || user.email.split('@')[0] || 'Creator'
+        const signinResult = await authService.signIn(authForm.email, authForm.password)
+        if (!signinResult.user?.email) {
+          throw new Error('No account session was returned.')
+        }
 
-        setAuthUser({ name: userName, email: user.email })
-        hydrateAccountData(user.email)
-        setAccountHydrated(true)
-        const done =
-          localStorage.getItem(getUserStorageKey('scriptr:onboarding-complete', user.email)) ||
-          localStorage.getItem(LEGACY_ONBOARDING_COMPLETE_KEY)
-        setScreen(done ? 'app' : 'onboarding')
+        await hydrateAccountData(
+          signinResult.user.id,
+          signinResult.user.email,
+          (signinResult.user.user_metadata?.full_name as string | undefined) || undefined,
+        )
         openToast('Signed in. Welcome back to Scriptr.')
       }
     } catch (error) {
-      if (error instanceof MissingIdentityError) {
-        setAuthError('Netlify Identity is not configured in this environment yet.')
-      } else if (error instanceof AuthError) {
-        if (error.status === 401) {
-          setAuthError('Invalid email or password.')
-        } else if (error.status === 403) {
-          setAuthError('Signups are currently disabled.')
-        } else {
-          setAuthError(error.message)
-        }
-      } else {
-        setAuthError('Unable to complete authentication right now.')
-      }
+      const message = error instanceof Error ? error.message : 'Unable to complete authentication right now.'
+      setAuthError(message)
     } finally {
       setAuthLoading(false)
     }
@@ -659,34 +766,66 @@ function Home() {
 
   const onLogout = async () => {
     try {
-      await logout()
+      await authService.signOut()
     } catch {
-      // Ignore logout issues in demo environments.
+      setAuthError('Sign out failed. Try again.')
+      return
     }
 
-    setAuthUser(null)
-    setAccountHydrated(false)
-    setScreen('landing')
+    clearWorkspaceState()
+    setScreen('signin')
     setActiveNav('dashboard')
     openToast('Signed out.')
   }
 
-  const persistOnboarding = (updated: OnboardingState) => {
+  const persistOnboarding = async (updated: OnboardingState) => {
     setOnboarding(updated)
-    if (authUser?.email) {
-      localStorage.setItem(storageKeys.onboarding, JSON.stringify(updated))
+
+    if (!authUserId) {
+      return
+    }
+
+    try {
+      const existing = await onboardingService.getByUserId(authUserId)
+      const completedAt = existing?.completed_at || null
+
+      await onboardingService.upsert(toOnboardingUpsertPayload(authUserId, updated, completedAt))
+      const defaultProfile = await channelProfileService.upsertDefault({
+        user_id: authUserId,
+        channel_name: updated.channelName || 'Untitled Channel',
+        niche: getPrimaryNiche(updated),
+        audience: updated.audienceDescription || null,
+        tone: getPrimaryTone(updated),
+        video_length: '8-12 minutes',
+        monetization_goal: updated.incomeGoal || null,
+        content_pillars: updated.contentStyle || null,
+        example_channels: null,
+      })
+
+      setProfiles((current) => {
+        const mapped = toChannelProfile(defaultProfile)
+        const rest = current.filter((profile) => profile.id !== mapped.id)
+        return [mapped, ...rest]
+      })
+    } catch {
+      openToast('Unable to save onboarding data right now.')
     }
   }
 
-  const nextOnboarding = () => {
+  const nextOnboarding = async () => {
     if (onboardingStep === 3 && !onboarding.channelName.trim()) {
       openToast('Please enter your channel name to continue.')
       return
     }
 
     if (onboardingStep === ONBOARDING_TOTAL_STEPS) {
-      if (authUser?.email) {
-        localStorage.setItem(storageKeys.onboardingComplete, 'true')
+      if (authUserId) {
+        try {
+          await onboardingService.upsert(toOnboardingUpsertPayload(authUserId, onboarding, new Date().toISOString()))
+        } catch {
+          openToast('Unable to complete onboarding right now.')
+          return
+        }
       }
       setScreen('app')
       openToast('Workspace ready. Start building your channel system.')
@@ -701,9 +840,20 @@ function Home() {
   }
 
   const toggleFavoriteScript = (id: string) => {
-    setScripts((current) =>
-      current.map((script) => (script.id === id ? { ...script, favorite: !script.favorite } : script)),
-    )
+    if (!authUserId) {
+      return
+    }
+
+    setScripts((current) => {
+      const next = current.map((script) => (script.id === id ? { ...script, favorite: !script.favorite } : script))
+      const updated = next.find((script) => script.id === id)
+      if (updated) {
+        void scriptService.updateScript(id, authUserId, { favorite: updated.favorite }).catch(() => {
+          openToast('Failed to update favorite.')
+        })
+      }
+      return next
+    })
   }
 
   const selectedIdea = selectedIdeaIndex !== null ? videoIdeas[selectedIdeaIndex] : null
@@ -719,53 +869,143 @@ function Home() {
 
   const getCurrentScriptText = () => polishedScriptText || formatScriptText(scriptDraft || undefined)
 
-  const upsertSavedScript = (
+  const upsertSavedScript = async (
     generated: GeneratedScript,
     options: { notify: boolean; fullScriptBody?: string; outlineSections?: Array<{ heading: string; content: string }> },
   ) => {
+    if (!authUserId) {
+      openToast('Sign in is required to save scripts.')
+      return
+    }
+
     const recordId = autosavedScriptId || `sc-${Date.now()}`
+    const nowIso = new Date().toISOString()
+    const existing = autosavedScriptId ? scripts.find((script) => script.id === autosavedScriptId) : null
+    const formattedBody = options.fullScriptBody || formatScriptText(generated)
+    const finalOutlineSections =
+      options.outlineSections ||
+      outlineBlocks.map((section) => ({
+        heading: section.section,
+        content: section.content,
+      }))
+    const wordCount = formattedBody.trim() ? formattedBody.trim().split(/\s+/).length : 0
 
-    setScripts((current) => {
-      const nowIso = new Date().toISOString()
-      const existing = autosavedScriptId ? current.find((script) => script.id === autosavedScriptId) : null
-      const formattedBody = options.fullScriptBody || formatScriptText(generated)
-      const finalOutlineSections =
-        options.outlineSections ||
-        outlineBlocks.map((section) => ({
-          heading: section.section,
-          content: section.content,
-        }))
+    const nextScript: SavedScript = {
+      id: recordId,
+      title: generated.script.title || `Untitled Script (${new Date().toLocaleDateString()})`,
+      selectedTitle: selectedTitle || generated.script.title || 'Untitled Script',
+      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      createdAt: existing?.createdAt || nowIso,
+      updatedAt: nowIso,
+      profile: selectedProfile.channelName,
+      niche: channelContext.niche,
+      tone: channelContext.tone || primaryProfile.tone,
+      type: channelContext.videoFormat,
+      status: 'Draft',
+      favorite: existing?.favorite || false,
+      outlineSections: finalOutlineSections,
+      fullScriptBody: formattedBody,
+      script: formattedBody,
+    }
+    const channelProfileId = /^[0-9a-f-]{36}$/i.test(selectedProfile.id) ? selectedProfile.id : null
 
-      const nextScript: SavedScript = {
+    try {
+      await scriptService.upsertScript({
         id: recordId,
-        title: generated.script.title || `Untitled Script (${new Date().toLocaleDateString()})`,
-        selectedTitle: selectedTitle || generated.script.title || 'Untitled Script',
-        date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        createdAt: existing?.createdAt || nowIso,
-        updatedAt: nowIso,
-        profile: selectedProfile.channelName,
-        niche: channelContext.niche,
-        tone: channelContext.tone || primaryProfile.tone,
-        type: channelContext.videoFormat,
-        status: 'Draft',
-        favorite: existing?.favorite || false,
-        outlineSections: finalOutlineSections,
-        fullScriptBody: formattedBody,
-        script: formattedBody,
-      }
+        user_id: authUserId,
+        channel_profile_id: channelProfileId,
+        title: nextScript.title,
+        selected_title: nextScript.selectedTitle,
+        idea: selectedIdea?.idea || null,
+        outline: JSON.stringify(finalOutlineSections),
+        full_script: formattedBody,
+        status: nextScript.status,
+        word_count: wordCount,
+        niche: nextScript.niche,
+        tone: nextScript.tone,
+        script_type: nextScript.type,
+        favorite: nextScript.favorite,
+      })
 
-      if (autosavedScriptId) {
-        return current.map((script) => (script.id === autosavedScriptId ? { ...script, ...nextScript } : script))
-      }
+      setScripts((current) => {
+        if (autosavedScriptId) {
+          return current.map((script) => (script.id === autosavedScriptId ? { ...script, ...nextScript } : script))
+        }
 
-      return [nextScript, ...current]
-    })
+        return [nextScript, ...current]
+      })
+
+      if (!autosavedScriptId) {
+        await usageStatsService.incrementScriptsGenerated(authUserId)
+        const freshUsage = await usageStatsService.getByUserId(authUserId)
+        setUsageStats(freshUsage)
+      } else {
+        const freshUsage = await usageStatsService.markActive(authUserId)
+        setUsageStats(freshUsage)
+      }
+    } catch {
+      openToast('Unable to save script to cloud storage.')
+      return
+    }
 
     setAutosavedScriptId(recordId)
     setSelectedScriptId(recordId)
 
     if (options.notify) {
       openToast('Script saved to scripts library.')
+    }
+  }
+
+  const submitForgotPassword = async () => {
+    if (!forgotEmail.trim()) {
+      setAuthError('Email is required.')
+      return
+    }
+
+    setAuthLoading(true)
+    setAuthError('')
+    setForgotStatus('')
+
+    try {
+      await authService.sendPasswordResetEmail(forgotEmail.trim())
+      setForgotStatus('Password reset email sent. Check your inbox.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to send password reset email.'
+      setAuthError(message)
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const submitResetPassword = async () => {
+    if (!resetPassword || !resetPasswordConfirm) {
+      setAuthError('Enter and confirm your new password.')
+      return
+    }
+    if (resetPassword !== resetPasswordConfirm) {
+      setAuthError('Passwords do not match.')
+      return
+    }
+    if (resetPassword.length < 8) {
+      setAuthError('Password must be at least 8 characters.')
+      return
+    }
+
+    setAuthLoading(true)
+    setAuthError('')
+    setResetStatus('')
+
+    try {
+      await authService.updatePassword(resetPassword)
+      setResetStatus('Password updated successfully. You can now sign in.')
+      setResetPassword('')
+      setResetPasswordConfirm('')
+      setScreen('signin')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update password.'
+      setAuthError(message)
+    } finally {
+      setAuthLoading(false)
     }
   }
 
@@ -875,7 +1115,7 @@ function Home() {
       })
       setScriptDraft(data)
       setPolishedScriptText('')
-      upsertSavedScript(data, { notify: true })
+      await upsertSavedScript(data, { notify: true })
       setWorkflowStep(5)
       openToast('Full script generated.')
     })
@@ -898,7 +1138,7 @@ function Home() {
 
       setPolishedScriptText(data.polished_script)
       if (scriptDraft) {
-        upsertSavedScript(scriptDraft, { notify: false, fullScriptBody: data.polished_script })
+        await upsertSavedScript(scriptDraft, { notify: false, fullScriptBody: data.polished_script })
       }
       setPolishChat((current) => [
         ...current,
@@ -1087,7 +1327,23 @@ function Home() {
     )
   }
 
-  if (screen === 'signin' || screen === 'signup' || screen === 'forgot') {
+  if (sessionLoading) {
+    return (
+      <main className="auth-page">
+        <div className="auth-bg-glow" />
+        <section className="auth-layout">
+          <div className="auth-card glass-panel">
+            <div className="auth-head">
+              <h1>Restoring session</h1>
+              <p>Loading account data from Supabase...</p>
+            </div>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  if (screen === 'signin' || screen === 'signup' || screen === 'forgot' || screen === 'reset') {
     return (
       <main className="auth-page">
         <div className="auth-bg-glow" />
@@ -1117,17 +1373,27 @@ function Home() {
 
           <div className="auth-card glass-panel">
             <div className="auth-head">
-              <h1>{screen === 'signup' ? 'Create your workspace' : screen === 'forgot' ? 'Password recovery' : 'Welcome back'}</h1>
+              <h1>
+                {screen === 'signup'
+                  ? 'Create your workspace'
+                  : screen === 'forgot'
+                    ? 'Password recovery'
+                    : screen === 'reset'
+                      ? 'Set a new password'
+                      : 'Welcome back'}
+              </h1>
               <p>
                 {screen === 'signup'
                   ? 'Sign up to personalize Scriptr for your YouTube growth goals.'
                   : screen === 'forgot'
                     ? 'Enter your email and receive account recovery instructions.'
-                    : 'Sign in to continue building scripts and channel systems.'}
+                    : screen === 'reset'
+                      ? 'Choose a secure password for your account.'
+                      : 'Sign in to continue building scripts and channel systems.'}
               </p>
             </div>
 
-            {screen !== 'forgot' ? (
+            {screen === 'signin' || screen === 'signup' ? (
               <form
                 className="auth-form"
                 onSubmit={(event) => {
@@ -1173,17 +1439,12 @@ function Home() {
                       : 'Sign in'}
                 </button>
               </form>
-            ) : (
+            ) : screen === 'forgot' ? (
               <form
                 className="auth-form"
                 onSubmit={(event) => {
                   event.preventDefault()
-                  if (!forgotEmail) {
-                    setAuthError('Email is required.')
-                    return
-                  }
-                  openToast('Recovery flow placeholder sent. Connect Identity recovery callback for production.')
-                  setScreen('signin')
+                  void submitForgotPassword()
                 }}
               >
                 <label>
@@ -1195,9 +1456,42 @@ function Home() {
                     placeholder="you@yourbrand.com"
                   />
                 </label>
+                {forgotStatus && <p className="muted-note">{forgotStatus}</p>}
                 {authError && <p className="error-text">{authError}</p>}
-                <button type="submit" className="btn primary">
+                <button type="submit" className="btn primary" disabled={authLoading}>
                   Send recovery link
+                </button>
+              </form>
+            ) : (
+              <form
+                className="auth-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void submitResetPassword()
+                }}
+              >
+                <label>
+                  New password
+                  <input
+                    type="password"
+                    value={resetPassword}
+                    onChange={(event) => setResetPassword(event.target.value)}
+                    placeholder="••••••••••"
+                  />
+                </label>
+                <label>
+                  Confirm new password
+                  <input
+                    type="password"
+                    value={resetPasswordConfirm}
+                    onChange={(event) => setResetPasswordConfirm(event.target.value)}
+                    placeholder="••••••••••"
+                  />
+                </label>
+                {resetStatus && <p className="muted-note">{resetStatus}</p>}
+                {authError && <p className="error-text">{authError}</p>}
+                <button type="submit" className="btn primary" disabled={authLoading}>
+                  Update password
                 </button>
               </form>
             )}
@@ -1225,6 +1519,11 @@ function Home() {
                 </p>
               )}
               {screen === 'forgot' && (
+                <button className="text-link" onClick={() => setScreen('signin')}>
+                  Back to sign in
+                </button>
+              )}
+              {screen === 'reset' && (
                 <button className="text-link" onClick={() => setScreen('signin')}>
                   Back to sign in
                 </button>
@@ -2055,7 +2354,11 @@ function Home() {
                 />
                 <StatCard title="Favorite niche" value={favoriteNiche} meta={`${scripts.length} total saved scripts`} />
                 <StatCard title="Most-used tone" value={mostUsedTone} meta="Based on saved script history" />
-                <StatCard title="Plan usage" value="60%" meta="18 of 30 credits" />
+                <StatCard
+                  title="Scripts generated"
+                  value={String(usageStats?.scripts_generated ?? 0)}
+                  meta={usageStats?.last_active_at ? `Last active ${new Date(usageStats.last_active_at).toLocaleDateString()}` : 'No activity yet'}
+                />
               </div>
 
               <div className="content-grid two">
