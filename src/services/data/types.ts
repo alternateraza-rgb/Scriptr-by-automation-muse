@@ -37,6 +37,13 @@ export type ChannelProfileRow = {
   audience: string | null
   tone: string | null
   video_length: string | null
+  video_format: string | null
+  topic_focus: string | null
+  target_audience: string | null
+  channel_stage: string | null
+  audience_knowledge_level: string | null
+  audience_pain_points: string | null
+  user_notes: string | null
   monetization_goal: string | null
   content_pillars: string | null
   example_channels: string | null

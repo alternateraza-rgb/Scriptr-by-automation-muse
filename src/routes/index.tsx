@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   generateTitles as requestTitles,
   generateIdeas as requestIdeas,
@@ -54,6 +54,13 @@ type ChannelProfile = {
   audience: string
   tone: string
   length: string
+  videoFormat?: string
+  topicFocus?: string
+  targetAudience?: string
+  channelStage?: string
+  audienceKnowledgeLevel?: string
+  audiencePainPoints?: string
+  userNotes?: string
   ctaStyle: string
   frequency: string
   monetizationGoal: string
@@ -249,6 +256,20 @@ const FAQ = [
 
 const getPrimaryNiche = (onboarding: OnboardingState) => onboarding.customNiche || onboarding.niche || 'General'
 const getPrimaryTone = (onboarding: OnboardingState) => onboarding.customTone || onboarding.tone || 'Conversational'
+const toCsv = (values: string[] | undefined) =>
+  values && values.length
+    ? values
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .join(', ')
+    : null
+const fromCsv = (value: string | null | undefined) =>
+  value
+    ? value
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : []
 
 const parseIsoDate = (value: string | undefined) => {
   if (!value) {
@@ -349,6 +370,13 @@ const toChannelProfile = (row: ChannelProfileRow): ChannelProfile => ({
   audience: row.audience || 'Audience profile not set yet.',
   tone: row.tone || 'Conversational',
   length: row.video_length || '8-12 minutes',
+  videoFormat: row.video_format || undefined,
+  topicFocus: row.topic_focus || undefined,
+  targetAudience: row.target_audience || undefined,
+  channelStage: row.channel_stage || undefined,
+  audienceKnowledgeLevel: row.audience_knowledge_level || undefined,
+  audiencePainPoints: row.audience_pain_points || undefined,
+  userNotes: row.user_notes || undefined,
   ctaStyle: 'Subscriber CTA',
   frequency: '1 video per month',
   monetizationGoal: row.monetization_goal || 'Build sustainable channel revenue',
@@ -368,6 +396,12 @@ const buildPrimaryProfile = (onboarding: OnboardingState): ChannelProfile => ({
   audience: onboarding.audienceDescription || 'Audience profile not set yet.',
   tone: getPrimaryTone(onboarding),
   length: '8-12 minutes',
+  videoFormat: onboarding.contentStyle || 'Long-form faceless videos',
+  targetAudience: onboarding.audienceDescription || undefined,
+  channelStage: onboarding.stage || undefined,
+  audienceKnowledgeLevel: onboarding.level || undefined,
+  audiencePainPoints: onboarding.painPoints || undefined,
+  userNotes: onboarding.primaryGoal || undefined,
   ctaStyle: onboarding.primaryGoal || 'Subscriber CTA',
   frequency: onboarding.uploadFrequency || '1 video per month',
   monetizationGoal: onboarding.incomeGoal || 'Build sustainable channel revenue',
@@ -377,24 +411,31 @@ const buildPrimaryProfile = (onboarding: OnboardingState): ChannelProfile => ({
   isDefault: true,
 })
 
-const toOnboardingUpsertPayload = (userId: string, onboarding: OnboardingState, completedAt?: string | null) => ({
-  user_id: userId,
-  niche: onboarding.niche || null,
-  income_goal: onboarding.incomeGoal || null,
-  channel_stage: onboarding.stage || null,
-  content_style: onboarding.contentStyle || null,
-  audience: onboarding.audienceDescription || null,
-  channel_name: onboarding.channelName || null,
-  upload_frequency: onboarding.uploadFrequency || null,
-  tone: onboarding.tone || null,
-  age_range: onboarding.ageRange || null,
-  level: onboarding.level || null,
-  pain_points: onboarding.painPoints || null,
-  primary_goal: onboarding.primaryGoal || null,
-  custom_niche: onboarding.customNiche || null,
-  custom_tone: onboarding.customTone || null,
-  completed_at: completedAt,
-})
+const toOnboardingUpsertPayload = (userId: string, onboarding: OnboardingState, completedAt?: string | null) => {
+  const payload = {
+    user_id: userId,
+    niche: onboarding.niche || null,
+    income_goal: onboarding.incomeGoal || null,
+    channel_stage: onboarding.stage || null,
+    content_style: onboarding.contentStyle || null,
+    audience: onboarding.audienceDescription || null,
+    channel_name: onboarding.channelName || null,
+    upload_frequency: onboarding.uploadFrequency || null,
+    tone: onboarding.tone || null,
+    age_range: onboarding.ageRange || null,
+    level: onboarding.level || null,
+    pain_points: onboarding.painPoints || null,
+    primary_goal: onboarding.primaryGoal || null,
+    custom_niche: onboarding.customNiche || null,
+    custom_tone: onboarding.customTone || null,
+  }
+
+  if (completedAt !== undefined) {
+    return { ...payload, completed_at: completedAt }
+  }
+
+  return payload
+}
 
 function ScriptrLogo({ compact = false }: { compact?: boolean }) {
   return (
@@ -492,11 +533,44 @@ function Home() {
   const [generationError, setGenerationError] = useState('')
   const [retryAction, setRetryAction] = useState<null | (() => void)>(null)
   const [journeyFocused, setJourneyFocused] = useState(false)
+  const channelSyncSignatureRef = useRef('')
+  const onboardingSyncErrorShownRef = useRef(false)
+  const channelSyncErrorShownRef = useRef(false)
 
   const primaryProfile = useMemo(
     () => profiles.find((profile) => profile.isDefault) || profiles[0] || buildPrimaryProfile(onboarding),
     [onboarding, profiles],
   )
+
+  const buildDefaultProfileInput = (userId: string, onboardingState: OnboardingState, context: ChannelContext) => ({
+    user_id: userId,
+    channel_name: onboardingState.channelName || context.channelName || 'Untitled Channel',
+    niche: getPrimaryNiche(onboardingState),
+    audience: onboardingState.audienceDescription || context.targetAudience || context.audience || null,
+    tone: getPrimaryTone(onboardingState),
+    video_length: context.videoLength || '8-12 minutes',
+    video_format: context.videoFormat || onboardingState.contentStyle || null,
+    topic_focus: context.videoTopicIdea || null,
+    target_audience: context.targetAudience || onboardingState.audienceDescription || null,
+    channel_stage: onboardingState.stage || context.channelStage || null,
+    audience_knowledge_level: onboardingState.level || context.audienceKnowledgeLevel || null,
+    audience_pain_points: onboardingState.painPoints || context.audiencePainPoints || null,
+    user_notes: context.userNotes || onboardingState.primaryGoal || null,
+    monetization_goal: onboardingState.incomeGoal || context.monetizationGoal || null,
+    content_pillars: toCsv(context.contentPillars) || onboardingState.contentStyle || null,
+    example_channels: toCsv(context.exampleChannels),
+  })
+
+  const saveOnboardingSnapshot = async (userId: string, onboardingState: OnboardingState, completedAt?: string | null) => {
+    await onboardingService.upsert(toOnboardingUpsertPayload(userId, onboardingState, completedAt))
+
+    const defaultProfile = await channelProfileService.upsertDefault(buildDefaultProfileInput(userId, onboardingState, channelContext))
+    setProfiles((current) => {
+      const mapped = toChannelProfile(defaultProfile)
+      const rest = current.filter((profile) => profile.id !== mapped.id)
+      return [mapped, ...rest]
+    })
+  }
 
   const clearWorkspaceState = () => {
     setAuthUser(null)
@@ -507,6 +581,9 @@ function Home() {
     setSelectedScriptId('')
     setUsageStats(null)
     setAutosavedScriptId(null)
+    channelSyncSignatureRef.current = ''
+    onboardingSyncErrorShownRef.current = false
+    channelSyncErrorShownRef.current = false
   }
 
   const hydrateAccountData = async (userId: string, email: string, nameFallback?: string) => {
@@ -536,6 +613,68 @@ function Home() {
     setOnboardingStep(onboardingRow?.completed_at ? ONBOARDING_TOTAL_STEPS : 1)
   }
 
+  const openToast = (message: string) => {
+    setToast(message)
+  }
+
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (error instanceof Error && error.message) {
+      return error.message
+    }
+
+    if (typeof error === 'object' && error !== null && 'message' in error) {
+      const maybeMessage = (error as { message?: unknown }).message
+      if (typeof maybeMessage === 'string' && maybeMessage.trim()) {
+        return maybeMessage
+      }
+    }
+
+    if (typeof error === 'string' && error.trim()) {
+      return error
+    }
+
+    return fallback
+  }
+
+  const setFallbackAuthenticatedState = (userId: string, email: string, nameFallback?: string) => {
+    const safeEmail = email || 'you@example.com'
+    const effectiveName = nameFallback || safeEmail.split('@')[0] || 'Creator'
+    const fallbackOnboarding = ONBOARDING_DEFAULTS
+
+    setAuthUser({ name: effectiveName, email: safeEmail })
+    setAuthUserId(userId)
+    setOnboarding(fallbackOnboarding)
+    setProfiles([buildPrimaryProfile(fallbackOnboarding)])
+    setScripts(INITIAL_SCRIPTS)
+    setSelectedScriptId('')
+    setUsageStats(null)
+    setScreen('onboarding')
+    setOnboardingStep(1)
+  }
+
+  const hydrateAccountDataSafely = async (
+    userId: string,
+    email: string,
+    nameFallback?: string,
+    options: { notify?: boolean; setInlineError?: boolean } = {},
+  ) => {
+    try {
+      await hydrateAccountData(userId, email, nameFallback)
+      return true
+    } catch (error) {
+      setFallbackAuthenticatedState(userId, email, nameFallback)
+      const message = getErrorMessage(error, 'Signed in, but account setup could not be completed.')
+      if (options.notify) {
+        openToast('Signed in, but account setup is still in progress. You can continue.')
+      }
+      if (options.setInlineError) {
+        setAuthError(message)
+      }
+      console.error('Failed to hydrate account data after auth.', error)
+      return false
+    }
+  }
+
   useEffect(() => {
     let isActive = true
 
@@ -560,10 +699,11 @@ function Home() {
         }
 
         if (session?.user && session.user.email) {
-          await hydrateAccountData(
+          await hydrateAccountDataSafely(
             session.user.id,
             session.user.email,
             (session.user.user_metadata?.full_name as string | undefined) || undefined,
+            { notify: true, setInlineError: true },
           )
         } else {
           clearWorkspaceState()
@@ -600,10 +740,11 @@ function Home() {
       }
 
       if (session?.user && session.user.email) {
-        void hydrateAccountData(
+        void hydrateAccountDataSafely(
           session.user.id,
           session.user.email,
           (session.user.user_metadata?.full_name as string | undefined) || undefined,
+          { notify: true },
         )
       } else if (event === 'SIGNED_OUT') {
         clearWorkspaceState()
@@ -632,31 +773,95 @@ function Home() {
       channelProfile: value.channelProfile || primaryProfile.description,
       niche: primaryProfile.niche,
       audience: value.audience || primaryProfile.audience,
-      targetAudience: value.targetAudience || primaryProfile.audience,
-      audienceKnowledgeLevel: value.audienceKnowledgeLevel || onboarding.level || '',
+      targetAudience: value.targetAudience || primaryProfile.targetAudience || primaryProfile.audience,
+      audienceKnowledgeLevel: value.audienceKnowledgeLevel || primaryProfile.audienceKnowledgeLevel || onboarding.level || '',
       tone: value.tone || primaryProfile.tone,
       monetizationGoal: value.monetizationGoal || primaryProfile.monetizationGoal,
-      channelStage: value.channelStage || onboarding.stage,
+      channelStage: value.channelStage || primaryProfile.channelStage || onboarding.stage,
       contentPillars:
         value.contentPillars && value.contentPillars.length
           ? value.contentPillars
-          : primaryProfile.pillars
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean),
+          : fromCsv(primaryProfile.pillars),
       exampleChannels:
         value.exampleChannels && value.exampleChannels.length
           ? value.exampleChannels
-          : primaryProfile.inspirations
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean),
-      userNotes: value.userNotes || onboarding.primaryGoal || '',
-      audiencePainPoints: value.audiencePainPoints || onboarding.painPoints || '',
-      channelStyle: value.channelStyle || value.videoFormat || primaryProfile.pillars,
+          : fromCsv(primaryProfile.inspirations),
+      userNotes: value.userNotes || primaryProfile.userNotes || onboarding.primaryGoal || '',
+      audiencePainPoints: value.audiencePainPoints || primaryProfile.audiencePainPoints || onboarding.painPoints || '',
+      channelStyle: value.channelStyle || value.videoFormat || primaryProfile.videoFormat || primaryProfile.pillars,
       channelName: value.channelName || primaryProfile.channelName,
+      videoLength: value.videoLength || primaryProfile.length || '8-12 minutes',
+      videoFormat: value.videoFormat || primaryProfile.videoFormat || onboarding.contentStyle || 'Long-form faceless videos',
+      videoTopicIdea: value.videoTopicIdea || primaryProfile.topicFocus || '',
     }))
-  }, [primaryProfile, onboarding.level, onboarding.painPoints, onboarding.primaryGoal, onboarding.stage])
+  }, [primaryProfile, onboarding.contentStyle, onboarding.level, onboarding.painPoints, onboarding.primaryGoal, onboarding.stage])
+
+  useEffect(() => {
+    if (!authUserId || screen !== 'onboarding') {
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      void saveOnboardingSnapshot(authUserId, onboarding).then(() => {
+        onboardingSyncErrorShownRef.current = false
+      }).catch(() => {
+        if (!onboardingSyncErrorShownRef.current) {
+          openToast('Unable to save onboarding data right now.')
+          onboardingSyncErrorShownRef.current = true
+        }
+      })
+    }, 350)
+
+    return () => clearTimeout(timeout)
+  }, [authUserId, onboarding, screen])
+
+  useEffect(() => {
+    if (!authUserId || screen !== 'app' || !/^[0-9a-f-]{36}$/i.test(primaryProfile.id)) {
+      return
+    }
+
+    const updatePayload = {
+      channel_name: channelContext.channelName || primaryProfile.channelName || 'Untitled Channel',
+      niche: channelContext.niche || primaryProfile.niche || null,
+      audience: channelContext.audience || channelContext.targetAudience || primaryProfile.audience || null,
+      tone: channelContext.tone || primaryProfile.tone || null,
+      video_length: channelContext.videoLength || primaryProfile.length || null,
+      video_format: channelContext.videoFormat || primaryProfile.videoFormat || null,
+      topic_focus: channelContext.videoTopicIdea || primaryProfile.topicFocus || null,
+      target_audience: channelContext.targetAudience || primaryProfile.targetAudience || null,
+      channel_stage: channelContext.channelStage || primaryProfile.channelStage || null,
+      audience_knowledge_level: channelContext.audienceKnowledgeLevel || primaryProfile.audienceKnowledgeLevel || null,
+      audience_pain_points: channelContext.audiencePainPoints || primaryProfile.audiencePainPoints || null,
+      user_notes: channelContext.userNotes || primaryProfile.userNotes || null,
+      monetization_goal: channelContext.monetizationGoal || primaryProfile.monetizationGoal || null,
+      content_pillars: toCsv(channelContext.contentPillars) || primaryProfile.pillars || null,
+      example_channels: toCsv(channelContext.exampleChannels) || primaryProfile.inspirations || null,
+    }
+    const nextSignature = JSON.stringify({ profileId: primaryProfile.id, ...updatePayload })
+
+    if (channelSyncSignatureRef.current === nextSignature) {
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      void channelProfileService.update(primaryProfile.id, authUserId, updatePayload).then((row) => {
+        channelSyncSignatureRef.current = nextSignature
+        channelSyncErrorShownRef.current = false
+        setProfiles((current) => {
+          const mapped = toChannelProfile(row)
+          const rest = current.filter((profile) => profile.id !== mapped.id)
+          return [mapped, ...rest]
+        })
+      }).catch(() => {
+        if (!channelSyncErrorShownRef.current) {
+          openToast('Unable to sync channel system data right now.')
+          channelSyncErrorShownRef.current = true
+        }
+      })
+    }, 600)
+
+    return () => clearTimeout(timeout)
+  }, [authUserId, channelContext, primaryProfile, screen])
 
   useEffect(() => {
     if (sessionLoading) {
@@ -718,10 +923,6 @@ function Home() {
     return Object.entries(toneCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A'
   }, [scripts])
 
-  const openToast = (message: string) => {
-    setToast(message)
-  }
-
   const onAuthSubmit = async (mode: 'signin' | 'signup') => {
     if (!authForm.email || !authForm.password || (mode === 'signup' && !authForm.name)) {
       setAuthError('Complete all required fields before continuing.')
@@ -736,7 +937,10 @@ function Home() {
         const signupResult = await authService.signUp(authForm.email, authForm.password, authForm.name)
 
         if (signupResult.session?.user && signupResult.user?.email) {
-          await hydrateAccountData(signupResult.session.user.id, signupResult.user.email, authForm.name)
+          await hydrateAccountDataSafely(signupResult.session.user.id, signupResult.user.email, authForm.name, {
+            notify: true,
+            setInlineError: true,
+          })
           setScreen('onboarding')
           openToast('Account created. Personalizing your workspace.')
         } else {
@@ -749,15 +953,16 @@ function Home() {
           throw new Error('No account session was returned.')
         }
 
-        await hydrateAccountData(
+        await hydrateAccountDataSafely(
           signinResult.user.id,
           signinResult.user.email,
           (signinResult.user.user_metadata?.full_name as string | undefined) || undefined,
+          { notify: true, setInlineError: true },
         )
         openToast('Signed in. Welcome back to Scriptr.')
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to complete authentication right now.'
+      const message = getErrorMessage(error, 'Unable to complete authentication right now.')
       setAuthError(message)
     } finally {
       setAuthLoading(false)
@@ -778,38 +983,8 @@ function Home() {
     openToast('Signed out.')
   }
 
-  const persistOnboarding = async (updated: OnboardingState) => {
+  const persistOnboarding = (updated: OnboardingState) => {
     setOnboarding(updated)
-
-    if (!authUserId) {
-      return
-    }
-
-    try {
-      const existing = await onboardingService.getByUserId(authUserId)
-      const completedAt = existing?.completed_at || null
-
-      await onboardingService.upsert(toOnboardingUpsertPayload(authUserId, updated, completedAt))
-      const defaultProfile = await channelProfileService.upsertDefault({
-        user_id: authUserId,
-        channel_name: updated.channelName || 'Untitled Channel',
-        niche: getPrimaryNiche(updated),
-        audience: updated.audienceDescription || null,
-        tone: getPrimaryTone(updated),
-        video_length: '8-12 minutes',
-        monetization_goal: updated.incomeGoal || null,
-        content_pillars: updated.contentStyle || null,
-        example_channels: null,
-      })
-
-      setProfiles((current) => {
-        const mapped = toChannelProfile(defaultProfile)
-        const rest = current.filter((profile) => profile.id !== mapped.id)
-        return [mapped, ...rest]
-      })
-    } catch {
-      openToast('Unable to save onboarding data right now.')
-    }
   }
 
   const nextOnboarding = async () => {
@@ -821,12 +996,14 @@ function Home() {
     if (onboardingStep === ONBOARDING_TOTAL_STEPS) {
       if (authUserId) {
         try {
-          await onboardingService.upsert(toOnboardingUpsertPayload(authUserId, onboarding, new Date().toISOString()))
+          await saveOnboardingSnapshot(authUserId, onboarding, new Date().toISOString())
         } catch {
           openToast('Unable to complete onboarding right now.')
           return
         }
       }
+      setActiveNav('dashboard')
+      setOnboardingStep(ONBOARDING_TOTAL_STEPS)
       setScreen('app')
       openToast('Workspace ready. Start building your channel system.')
       return
