@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   generateTitles as requestTitles,
@@ -1423,6 +1423,9 @@ function Home() {
             <button className="btn ghost" onClick={() => setScreen('signin')}>
               Sign in
             </button>
+            <Link to="/pricing" className="btn secondary">
+              Pricing
+            </Link>
             <button className="btn primary" onClick={() => setScreen('signup')}>
               Get Started
             </button>
