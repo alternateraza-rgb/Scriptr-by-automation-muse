@@ -262,6 +262,102 @@ label {
   gap: 0.6rem;
 }
 
+.brand-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.brand-marketing {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.marketing-page {
+  padding: 1.25rem;
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  gap: 1rem;
+}
+
+.marketing-nav {
+  padding: 0.85rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pricing-hero {
+  padding: 1.5rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.pricing-hero h1 {
+  font-size: clamp(1.9rem, 3vw, 2.6rem);
+}
+
+.pricing-standalone-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pricing-standalone-card {
+  padding: 1.4rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.pricing-standalone-card.featured {
+  border-color: #ff4c5d;
+}
+
+.pricing-amount {
+  color: #fff;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.pricing-standalone-card ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.pricing-standalone-card li {
+  color: #ececec;
+  font-size: 0.94rem;
+  padding-left: 1rem;
+  position: relative;
+}
+
+.pricing-standalone-card li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: #ff6f7d;
+}
+
+.tos-sheet {
+  padding: 1.5rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.tos-sheet h1,
+.tos-sheet h2 {
+  margin-top: 0.4rem;
+}
+
+.tos-sheet h2 {
+  font-size: 1.05rem;
+}
+
 .hero-section {
   display: grid;
   gap: 1rem;
@@ -1076,6 +1172,7 @@ label {
   .testimonial-grid,
   .card-grid,
   .pricing-grid,
+  .pricing-standalone-grid,
   .stat-grid,
   .content-grid.two,
   .form-grid,
@@ -1155,6 +1252,7 @@ label {
   .card-grid,
   .completion-grid,
   .pricing-grid,
+  .pricing-standalone-grid,
   .stat-grid,
   .content-grid.two,
   .form-grid,
