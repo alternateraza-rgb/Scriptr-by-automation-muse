@@ -39,9 +39,7 @@ Generate exactly 3 strong video ideas aligned to this channel profile.
 
 Must account for:
 - niche
-- audience and audience knowledge level
-- monetization goal
-- content pillars (when provided)
+- audience
 - example channels (when provided)
 - channel style and tone
 - audience pain points

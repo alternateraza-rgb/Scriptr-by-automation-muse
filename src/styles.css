@@ -732,11 +732,13 @@ label {
   align-items: center;
   gap: 0.55rem;
   cursor: pointer;
+  transition: background-color 0.22s ease, border-color 0.22s ease, color 0.22s ease, transform 0.22s ease;
 }
 
 .nav-item:hover {
   background: #161616;
   border-color: #2e2e2e;
+  transform: translateX(2px);
 }
 
 .nav-item.active {
@@ -798,6 +800,15 @@ label {
   padding: 1rem;
   display: grid;
   gap: 1rem;
+}
+
+.menu-transition-surface {
+  animation: menuFadeSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: 50% 20%;
+}
+
+.inner-menu-surface {
+  animation: menuFadeSlideIn 0.24s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .page-header {
@@ -936,6 +947,11 @@ label {
   font-weight: 700;
   letter-spacing: 0.01em;
   cursor: pointer;
+  transition: background 0.22s ease, border-color 0.22s ease, color 0.22s ease, transform 0.22s ease;
+}
+
+.tab-pill:hover {
+  transform: translateY(-1px);
 }
 
 .tab-pill.active {
@@ -1030,8 +1046,41 @@ label {
   }
 }
 
+@keyframes menuFadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes detailViewSwap {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .library-toolbar {
   grid-template-columns: 1.6fr 1fr 1fr;
+}
+
+.library-cards-panel,
+.script-detail-screen {
+  align-content: start;
+}
+
+.library-card-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .cards-list.scrollable {
@@ -1043,6 +1092,13 @@ label {
   cursor: pointer;
   display: grid;
   gap: 0.55rem;
+  transition: transform 0.24s ease, border-color 0.24s ease, box-shadow 0.24s ease;
+}
+
+.script-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 90, 105, 0.5);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.28);
 }
 
 .script-card.active {
@@ -1055,14 +1111,40 @@ label {
 }
 
 .detail-switcher {
-  margin-top: 0.2rem;
+  margin-top: 0.25rem;
+}
+
+.script-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.script-detail-title {
+  margin: 0;
 }
 
 .script-detail-content {
   border: 1px solid #2f2f2f;
   border-radius: 12px;
   background: #101010;
-  padding: 0.8rem;
+  padding: 1rem;
+  min-height: 52vh;
+  display: grid;
+  align-content: start;
+  gap: 0.8rem;
+}
+
+.script-detail-pane {
+  animation: detailViewSwap 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.script-detail-content p {
+  margin: 0;
+  line-height: 1.6;
+  color: #ececec;
 }
 
 .script-detail-content pre {
@@ -1070,6 +1152,7 @@ label {
   white-space: pre-wrap;
   font-family: inherit;
   color: #e8e8e8;
+  line-height: 1.6;
 }
 
 .outline-list {
@@ -1077,7 +1160,15 @@ label {
   gap: 0.75rem;
 }
 
+.outline-item {
+  border: 1px solid #2f2f2f;
+  border-radius: 10px;
+  background: #121212;
+  padding: 0.8rem;
+}
+
 .outline-item h5 {
+  margin-top: 0;
   margin-bottom: 0.3rem;
 }
 
@@ -1153,6 +1244,26 @@ label {
   display: none;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .menu-transition-surface,
+  .inner-menu-surface,
+  .script-detail-pane {
+    animation: none;
+  }
+
+  .nav-item,
+  .tab-pill,
+  .script-card {
+    transition: none;
+  }
+
+  .nav-item:hover,
+  .tab-pill:hover,
+  .script-card:hover {
+    transform: none;
+  }
+}
+
 @media (max-width: 1160px) {
   .hero-section,
   .auth-layout,
@@ -1183,6 +1294,10 @@ label {
 
   .form-grid label:has(textarea) {
     grid-column: auto;
+  }
+
+  .library-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1264,5 +1379,18 @@ label {
 
   .landing-page {
     padding: 0.85rem;
+  }
+
+  .library-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .script-detail-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .script-detail-content {
+    min-height: 42vh;
   }
 }

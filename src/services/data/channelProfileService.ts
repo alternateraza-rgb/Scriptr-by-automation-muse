@@ -39,8 +39,8 @@ const cleanChannelName = (value: string | null | undefined) => {
   return normalized
 }
 
-const logProfileWrite = (payload: Partial<ChannelProfileInput>) => {
-  console.log('Updating channel profile:', payload)
+const logProfileWrite = (operation: string, payload: Partial<ChannelProfileInput>) => {
+  console.log(`[channel_profiles:${operation}] payload`, payload)
 }
 
 export const channelProfileService = {
@@ -53,6 +53,7 @@ export const channelProfileService = {
       .returns<ChannelProfileRow[]>()
 
     if (error) {
+      console.error('[channel_profiles:listByUserId] fetch error', { userId, error })
       throw error
     }
 
@@ -71,6 +72,7 @@ export const channelProfileService = {
       .returns<ChannelProfileRow[]>()
 
     if (existingError) {
+      console.error('[channel_profiles:upsertDefault] fetch error', { userId: input.user_id, error: existingError })
       throw existingError
     }
 
@@ -86,7 +88,7 @@ export const channelProfileService = {
         channel_name: resolvedChannelName ?? undefined,
       })
 
-      logProfileWrite(updatePayload)
+      logProfileWrite('update', updatePayload)
       const { data, error } = await supabase
         .from('channel_profiles')
         .update(updatePayload)
@@ -96,6 +98,12 @@ export const channelProfileService = {
         .single<ChannelProfileRow>()
 
       if (error) {
+        console.error('[channel_profiles:upsertDefault] save error', {
+          mode: 'update',
+          userId: input.user_id,
+          payload: updatePayload,
+          error,
+        })
         throw error
       }
       return data
@@ -106,7 +114,7 @@ export const channelProfileService = {
       channel_name: resolvedChannelName || 'Untitled Channel',
     }) as ChannelProfileInput
 
-    logProfileWrite(insertPayload)
+    logProfileWrite('insert', insertPayload)
     const { data, error } = await supabase
       .from('channel_profiles')
       .insert(insertPayload)
@@ -114,6 +122,12 @@ export const channelProfileService = {
       .single<ChannelProfileRow>()
 
     if (error) {
+      console.error('[channel_profiles:upsertDefault] save error', {
+        mode: 'insert',
+        userId: input.user_id,
+        payload: insertPayload,
+        error,
+      })
       throw error
     }
     return data
@@ -125,7 +139,7 @@ export const channelProfileService = {
       channel_name: cleanChannelName(input.channel_name) || 'Untitled Channel',
     }) as ChannelProfileInput
 
-    logProfileWrite(payload)
+    logProfileWrite('insert', payload)
     const { data, error } = await supabase
       .from('channel_profiles')
       .insert(payload)
@@ -133,6 +147,7 @@ export const channelProfileService = {
       .single<ChannelProfileRow>()
 
     if (error) {
+      console.error('[channel_profiles:create] save error', { payload, error })
       throw error
     }
 
@@ -149,7 +164,7 @@ export const channelProfileService = {
       payload.channel_name = sanitizedName
     }
 
-    logProfileWrite(payload)
+    logProfileWrite('update', payload)
     const { data, error } = await supabase
       .from('channel_profiles')
       .update(payload)
@@ -159,6 +174,7 @@ export const channelProfileService = {
       .single<ChannelProfileRow>()
 
     if (error) {
+      console.error('[channel_profiles:update] save error', { id, userId, payload, error })
       throw error
     }
 
@@ -169,6 +185,7 @@ export const channelProfileService = {
     const { error } = await supabase.from('channel_profiles').delete().eq('id', id).eq('user_id', userId)
 
     if (error) {
+      console.error('[channel_profiles:remove] save error', { id, userId, error })
       throw error
     }
   },

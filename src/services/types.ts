@@ -1,8 +1,6 @@
 export type ChannelContext = {
   channelProfile?: string
   audience?: string
-  audienceKnowledgeLevel?: string
-  contentPillars?: string[]
   exampleChannels?: string[]
   userNotes?: string
   channelStyle?: string
@@ -13,8 +11,6 @@ export type ChannelContext = {
   tone: string
   videoLength: string
   videoFormat: string
-  monetizationGoal: string
-  channelStage: string
   channelName?: string
 }
 
