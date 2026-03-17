@@ -20,10 +20,8 @@ type CleanScriptPromptPayload = {
     videoFormat: string
     channelName: string
     channelStage: string
-    monetizationGoal: string
     channelStyle: string
     audiencePainPoints: string
-    contentPillars: string[]
     exampleChannels: string[]
     userNotes: string
     channelProfile: string
@@ -191,13 +189,11 @@ const cleanPromptPayload = (input: ScriptWriterInput): CleanScriptPromptPayload 
       videoFormat,
       channelName: withFallback(cleanText(context.channelName), `${niche} Channel`),
       channelStage: withFallback(cleanText(context.channelStage), 'Early growth'),
-      monetizationGoal: withFallback(cleanText(context.monetizationGoal), 'Build sustainable channel revenue with repeatable high-retention uploads'),
       channelStyle: withFallback(cleanText(context.channelStyle), 'Narration-first faceless storytelling'),
       audiencePainPoints: withFallback(
         cleanText(context.audiencePainPoints),
         `This audience wants ${niche.toLowerCase()} content with clear stakes and practical payoff.`,
       ),
-      contentPillars: cleanList((context as { contentPillars?: unknown }).contentPillars),
       exampleChannels: cleanList(context.exampleChannels),
       userNotes: cleanText(context.userNotes),
       channelProfile: cleanText(context.channelProfile),
@@ -237,7 +233,7 @@ Strict writing rules:
 - Tone control: follow tone exactly as provided in cleaned variables.
 - Respect video length and keep total word count between ${lengthTargets.minimumWords} and ${lengthTargets.maximumWords} words.
 - Target close to ${lengthTargets.targetWords} words.
-- Use audiencePainPoints and contentPillars as direct narrative anchors.
+- Use audiencePainPoints as direct narrative anchors.
 - Keep consistency across idea, title, outline, and script.
 - Do not use em dashes.
 - No generic phrasing.
@@ -279,7 +275,7 @@ Strict rewrite rules:
 - Preserve storyline logic and facts.
 - Rewrite to between ${minimumWords} and ${maximumWords} words.
 - Target close to ${targetWords} words.
-- Keep tone, audiencePainPoints, and contentPillars aligned to cleaned variables.
+- Keep tone and audiencePainPoints aligned to cleaned variables.
 - No generic phrasing and no em dashes.
 
 Return JSON only in this exact shape:

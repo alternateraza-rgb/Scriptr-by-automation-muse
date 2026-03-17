@@ -4,7 +4,6 @@ import { failure, parseJsonBody, success } from './utils/response.mts'
 
 type ChannelProfileContext = {
   channelName?: string
-  contentPillars?: string[]
   exampleChannels?: string[]
   userNotes?: string
 }
@@ -39,9 +38,7 @@ type NormalizedContext = {
   userNotes: string
   channelStyle: string
   audiencePainPoints: string
-  contentPillars: string[]
   channelName: string
-  monetizationGoal: string
   channelStage: string
   channelProfile: string
 }
@@ -313,7 +310,6 @@ const normalizeContext = (body: IdeasRequest): NormalizedContext => {
   const source = body.channelContext && typeof body.channelContext === 'object' ? body.channelContext : body
   const rawChannelProfile = source.channelProfile ?? body.channelProfile
   const channelProfileObject = typeof rawChannelProfile === 'object' && rawChannelProfile !== null ? rawChannelProfile : {}
-  const contentPillars = asArray((channelProfileObject as { contentPillars?: unknown }).contentPillars)
 
   const niche = withDefault(asString((source as { niche?: unknown }).niche), 'Education')
   const videoTopicIdea = withDefault(
@@ -363,12 +359,7 @@ const normalizeContext = (body: IdeasRequest): NormalizedContext => {
       asString((source as { audiencePainPoints?: unknown }).audiencePainPoints),
       `Viewers struggle to find ${niche.toLowerCase()} content that is both engaging and actionable.`,
     ),
-    contentPillars: contentPillars.length ? contentPillars : ['Counterintuitive insights', 'Narrative breakdowns', 'Actionable lessons'],
     channelName: withDefault(asString((source as { channelName?: unknown }).channelName), `${niche} Signal`),
-    monetizationGoal: withDefault(
-      asString((source as { monetizationGoal?: unknown }).monetizationGoal),
-      'Grow high-retention videos that support long-term ad revenue and sponsorships.',
-    ),
     channelStage: withDefault(asString((source as { channelStage?: unknown }).channelStage), 'Early stage channel building authority.'),
     channelProfile: profileString,
   }
@@ -763,7 +754,7 @@ const buildFallbackInsights = (context: NormalizedContext): ResearchInsights => 
   overusedPatterns: ['Generic broad explainers without a strong conflict hook.'],
   angleGaps: [
     `Audience-specific framing for ${context.targetAudience.toLowerCase()}.`,
-    `Stronger proof moments tied to ${context.contentPillars[0] || 'actionable lessons'}.`,
+    'Stronger proof moments tied to concrete outcomes.',
     `A sharper narrative arc aligned to ${context.videoLength}.`,
   ],
   outperformingVideoTypes: ['Hidden-story reveal', 'Case-study breakdown', 'Narrative explainer'],
@@ -789,7 +780,7 @@ Strict generation instructions:
 - why_it_works must reference the provided research signals.
 - No generic topics, no repeated angles, no textbook phrasing.
 - Keep the three ideas strategically distinct.
-- Hard requirement: weave in these variables directly: niche, targetAudience, videoLength, videoFormat, audiencePainPoints, contentPillars, monetizationGoal.
+- Hard requirement: weave in these variables directly: niche, targetAudience, videoLength, videoFormat, audiencePainPoints.
 
 Return valid JSON only with this shape:
 {
@@ -907,7 +898,7 @@ Strict generation instructions:
 - High curiosity, strong promise, clean phrasing.
 - Avoid these starts: What if, In this video, The truth about, Everything you need to know.
 - Keep titles distinct and clickable.
-- Every title must stay aligned to targetAudience, audiencePainPoints, and monetizationGoal.
+- Every title must stay aligned to targetAudience and audiencePainPoints.
 
 Return valid JSON only with this shape:
 {
@@ -964,7 +955,7 @@ Strict generation instructions:
 8. Payoff
 9. CTA
 - Each section must be intentional, high-retention, and lead naturally to the next.
-- Bake in the user variables (tone, targetAudience, audiencePainPoints, videoFormat, channelStyle, contentPillars).
+- Bake in the user variables (tone, targetAudience, audiencePainPoints, videoFormat, channelStyle).
 
 Return valid JSON only with this shape:
 {
@@ -1031,7 +1022,6 @@ Strict generation instructions:
 - Respect videoLength: ${context.videoLength}.
 - Use channelStyle: ${context.channelStyle}.
 - Keep the script strongly focused on audiencePainPoints: ${context.audiencePainPoints}.
-- Weave contentPillars naturally: ${context.contentPillars.join(', ')}.
 - The script must land near ${lengthTargets.minutes} minutes.
 - Word count must be between ${lengthTargets.minimumWords} and ${lengthTargets.maximumWords}. Target ${lengthTargets.targetWords} words.
 - Keep consistency across idea, title, outline, and script.

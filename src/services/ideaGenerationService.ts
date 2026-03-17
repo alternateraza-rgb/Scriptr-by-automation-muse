@@ -1,12 +1,6 @@
 import { callAiFunction } from './aiProviderService'
 import type { ChannelContext, VideoIdea } from './types'
 
-const splitTextList = (value: string | undefined): string[] =>
-  (value || '')
-    .split(/[\n,|]/g)
-    .map((item) => item.trim())
-    .filter(Boolean)
-
 const normalizeOutlierStatus = (value: unknown): 'Low' | 'Medium' | 'High' => {
   if (typeof value !== 'string') {
     return 'Medium'
@@ -46,12 +40,10 @@ export async function generateIdeas(channelContext: ChannelContext): Promise<{ i
     videoFormat: channelContext.videoFormat,
     exampleChannels: channelContext.exampleChannels || [],
     userNotes: channelContext.userNotes,
-    monetizationGoal: channelContext.monetizationGoal,
     channelStage: channelContext.channelStage,
     channelProfileText: profileText,
     channelProfile: {
       channelName: channelContext.channelName,
-      contentPillars: splitTextList(profileText),
       exampleChannels: channelContext.exampleChannels || [],
       userNotes: channelContext.userNotes,
     },

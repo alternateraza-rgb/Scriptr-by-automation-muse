@@ -14,7 +14,7 @@ export type ScriptUpsertInput = {
   word_count: number | null
   niche: string | null
   tone: string | null
-  content_pillars: string | null
+  content_pillars?: string | null
   example_channels: string | null
   topic_focus: string | null
   user_notes: string | null

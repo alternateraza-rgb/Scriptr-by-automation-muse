@@ -5,7 +5,6 @@ export type ChannelContext = {
   userNotes?: string
   channelStyle?: string
   audiencePainPoints?: string
-  monetizationGoal?: string
   channelStage?: string
   niche: string
   videoTopicIdea: string
