@@ -475,6 +475,234 @@ function ScriptrLogo({ compact = false }: { compact?: boolean }) {
   )
 }
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const looksLikeHeading = (line: string) => {
+  const trimmed = line.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  if (trimmed.endsWith(':')) {
+    return true
+  }
+
+  return /^[A-Z0-9][A-Z0-9\s,&'/-]{4,}$/.test(trimmed)
+}
+
+const renderScriptBlocksForPdf = (text: string) => {
+  const normalized = text.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return '<p class="script-paragraph">No script content yet.</p>'
+  }
+
+  const blocks = normalized
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+
+  return blocks
+    .map((block) => {
+      const lines = block
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+
+      if (!lines.length) {
+        return ''
+      }
+
+      const [firstLine, ...rest] = lines
+      if (looksLikeHeading(firstLine)) {
+        const heading = `<h2 class="script-heading">${escapeHtml(firstLine.replace(/:\s*$/, ''))}</h2>`
+        if (!rest.length) {
+          return heading
+        }
+
+        const paragraph = `<p class="script-paragraph">${rest.map((line) => escapeHtml(line)).join('<br />')}</p>`
+        return `${heading}\n${paragraph}`
+      }
+
+      return `<p class="script-paragraph">${lines.map((line) => escapeHtml(line)).join('<br />')}</p>`
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+const buildScriptPdfHtml = (scriptTitle: string, scriptContent: string) => {
+  const safeTitle = escapeHtml(scriptTitle || 'Untitled Script')
+  const safeDate = escapeHtml(
+    new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+  )
+  const renderedContent = renderScriptBlocksForPdf(scriptContent)
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${safeTitle}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      @page {
+        size: A4;
+        margin: 0.62in;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        color: #1f1a17;
+        background: #f5efe5;
+        font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .sheet {
+        background: #fffdfa;
+        border: 1px solid #eadfce;
+        border-radius: 22px;
+        padding: 42px 46px 48px;
+        box-shadow: 0 12px 40px rgba(41, 24, 10, 0.1);
+      }
+      .document-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 18px;
+        margin-bottom: 28px;
+        border-bottom: 1px solid #e9ddcb;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        flex-shrink: 0;
+      }
+      .brand-name {
+        font-family: "Playfair Display", Georgia, serif;
+        font-size: 21px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: #121212;
+      }
+      .brand-subtitle {
+        margin-top: 2px;
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #8d7257;
+      }
+      .meta {
+        text-align: right;
+      }
+      .meta-label {
+        margin: 0;
+        font-size: 9px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #9e8367;
+      }
+      .meta-date {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: #3f3123;
+      }
+      .script-title {
+        margin: 0 0 24px;
+        font-family: "Playfair Display", Georgia, serif;
+        font-size: 31px;
+        line-height: 1.22;
+        letter-spacing: 0.01em;
+        color: #1c1a17;
+      }
+      .script-body {
+        font-size: 13.5px;
+        line-height: 1.85;
+        color: #2a231e;
+      }
+      .script-heading {
+        margin: 30px 0 10px;
+        font-family: "Playfair Display", Georgia, serif;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #70281f;
+        break-after: avoid;
+      }
+      .script-heading:first-child {
+        margin-top: 0;
+      }
+      .script-paragraph {
+        margin: 0 0 16px;
+        text-align: left;
+        break-inside: avoid;
+        orphans: 3;
+        widows: 3;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="sheet">
+      <header class="document-header">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 56 56" aria-hidden="true">
+            <defs>
+              <linearGradient id="scriptrMarkPdf" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stop-color="#FF3347" />
+                <stop offset="100%" stop-color="#E11D2E" />
+              </linearGradient>
+            </defs>
+            <rect x="3" y="3" width="50" height="50" rx="14" fill="#0B0B0B" stroke="#2A2A2A" />
+            <path
+              d="M38 18c-2.2-2.7-5.6-4-10.1-4-6.5 0-11 3.1-11 8 0 4.1 2.7 6.3 8.7 7.4l4.2.7c2.6.5 3.7 1.4 3.7 2.9 0 2.1-2.3 3.4-5.9 3.4-3.5 0-6.1-1.2-8.1-3.4"
+              fill="none"
+              stroke="url(#scriptrMarkPdf)"
+              stroke-width="4"
+              stroke-linecap="round"
+            />
+            <path d="M35 16l7 0" stroke="#FF3347" stroke-width="4" stroke-linecap="round" />
+          </svg>
+          <div>
+            <p class="brand-name">Scriptr</p>
+            <p class="brand-subtitle">Automation Muse</p>
+          </div>
+        </div>
+        <div class="meta">
+          <p class="meta-label">Exported Script</p>
+          <p class="meta-date">${safeDate}</p>
+        </div>
+      </header>
+      <h1 class="script-title">${safeTitle}</h1>
+      <article class="script-body">${renderedContent}</article>
+    </main>
+    <script>
+      window.addEventListener('load', () => {
+        setTimeout(() => window.print(), 180)
+      })
+      window.addEventListener('afterprint', () => window.close())
+    </script>
+  </body>
+</html>`
+}
+
 function Home() {
   const [screen, setScreen] = useState<Screen>('landing')
   const [activeNav, setActiveNav] = useState<NavKey>('dashboard')
@@ -1405,10 +1633,13 @@ function Home() {
       return
     }
 
-    printWindow.document.write(`<pre>${getCurrentScriptText()}</pre>`)
+    const pdfTitle = scriptDraft.script.title || 'Untitled Script'
+    const pdfContent = getCurrentScriptText()
+    const pdfHtml = buildScriptPdfHtml(pdfTitle, pdfContent)
+    printWindow.document.open()
+    printWindow.document.write(pdfHtml)
     printWindow.document.close()
     printWindow.focus()
-    printWindow.print()
     setWorkflowStep(7)
   }
 
