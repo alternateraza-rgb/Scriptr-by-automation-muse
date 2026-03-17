@@ -67,6 +67,12 @@ export type ScriptRow = {
   word_count: number | null
   niche: string | null
   tone: string | null
+  content_pillars: string | null
+  example_channels: string | null
+  topic_focus: string | null
+  user_notes: string | null
+  video_length: string | null
+  generated_ideas: string | null
   script_type: string | null
   favorite: boolean | null
   created_at: string

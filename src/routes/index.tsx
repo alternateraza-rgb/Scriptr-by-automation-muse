@@ -370,22 +370,22 @@ const toChannelProfile = (row: ChannelProfileRow): ChannelProfile => ({
   niche: row.niche || 'General',
   description: `Channel strategy for ${row.channel_name || 'your channel'} focused on ${row.niche || 'General'} content.`,
   audience: row.audience || 'Audience profile not set yet.',
-  ageRange: row.age_range || undefined,
   tone: row.tone || 'Conversational',
-  uploadFrequency: row.upload_frequency || undefined,
-  length: row.video_length || '8-12 minutes',
-  videoFormat: row.video_format || undefined,
-  topicFocus: row.topic_focus || undefined,
-  targetAudience: row.target_audience || undefined,
-  channelStage: row.channel_stage || undefined,
-  audienceKnowledgeLevel: row.audience_knowledge_level || undefined,
-  audiencePainPoints: row.audience_pain_points || undefined,
-  userNotes: row.user_notes || undefined,
+  ageRange: undefined,
+  uploadFrequency: undefined,
+  length: '8-12 minutes',
+  videoFormat: undefined,
+  topicFocus: undefined,
+  targetAudience: row.audience || undefined,
+  channelStage: undefined,
+  audienceKnowledgeLevel: undefined,
+  audiencePainPoints: undefined,
+  userNotes: undefined,
   ctaStyle: 'Subscriber CTA',
   frequency: '1 video per month',
   monetizationGoal: row.monetization_goal || 'Build sustainable channel revenue',
-  pillars: row.content_pillars || 'Educational explainers',
-  inspirations: row.example_channels || 'Add inspiration channels',
+  pillars: 'Educational explainers',
+  inspirations: 'Add inspiration channels',
   brandVoice: row.tone || 'Conversational',
   isDefault: Boolean(row.is_default),
 })
@@ -768,47 +768,25 @@ function Home() {
   const [generationError, setGenerationError] = useState('')
   const [retryAction, setRetryAction] = useState<null | (() => void)>(null)
   const [journeyFocused, setJourneyFocused] = useState(false)
-  const channelSyncSignatureRef = useRef('')
   const onboardingSyncErrorShownRef = useRef(false)
-  const channelSyncErrorShownRef = useRef(false)
 
   const primaryProfile = useMemo(
     () => profiles.find((profile) => profile.isDefault) || profiles[0] || buildPrimaryProfile(onboarding),
     [onboarding, profiles],
   )
 
-  const buildDefaultProfileInput = (userId: string, onboardingState: OnboardingState, context: ChannelContext) => ({
+  const buildDefaultProfileInput = (userId: string, onboardingState: OnboardingState) => ({
     user_id: userId,
-    channel_name: onboardingState.channelName || context.channelName || 'Untitled Channel',
+    channel_name: onboardingState.channelName || null,
     niche: getPrimaryNiche(onboardingState),
-    audience: onboardingState.audienceDescription || context.targetAudience || context.audience || null,
-    age_range: onboardingState.ageRange || null,
+    audience: onboardingState.audienceDescription || null,
     tone: getPrimaryTone(onboardingState),
-    upload_frequency: onboardingState.uploadFrequency || null,
-    video_length: context.videoLength || '8-12 minutes',
-    video_format: context.videoFormat || onboardingState.contentStyle || null,
-    topic_focus: context.videoTopicIdea || null,
-    target_audience: context.targetAudience || onboardingState.audienceDescription || null,
-    channel_stage: onboardingState.stage || context.channelStage || null,
-    audience_knowledge_level: onboardingState.level || context.audienceKnowledgeLevel || null,
-    audience_pain_points: onboardingState.painPoints || context.audiencePainPoints || null,
-    user_notes: context.userNotes || onboardingState.primaryGoal || null,
-    monetization_goal: onboardingState.incomeGoal || context.monetizationGoal || null,
-    content_pillars: toCsv(context.contentPillars) || onboardingState.contentStyle || null,
-    example_channels: toCsv(context.exampleChannels),
+    monetization_goal: onboardingState.incomeGoal || null,
   })
 
   const saveOnboardingSnapshot = async (userId: string, onboardingState: OnboardingState, completedAt?: string | null) => {
     const onboardingRow = await onboardingService.upsert(toOnboardingUpsertPayload(userId, onboardingState, completedAt))
-
-    const defaultProfile = await channelProfileService.upsertDefault(buildDefaultProfileInput(userId, onboardingState, channelContext))
-    setProfiles((current) => {
-      const mapped = toChannelProfile(defaultProfile)
-      const rest = current.filter((profile) => profile.id !== mapped.id)
-      return [mapped, ...rest]
-    })
-
-    return { onboardingRow, defaultProfile }
+    return { onboardingRow }
   }
 
   const clearWorkspaceState = () => {
@@ -821,9 +799,7 @@ function Home() {
     setUsageStats(null)
     setIsCompletingOnboarding(false)
     setAutosavedScriptId(null)
-    channelSyncSignatureRef.current = ''
     onboardingSyncErrorShownRef.current = false
-    channelSyncErrorShownRef.current = false
   }
 
   const hydrateAccountData = async (userId: string, email: string, nameFallback?: string) => {
@@ -1056,54 +1032,6 @@ function Home() {
   }, [authUserId, isCompletingOnboarding, onboarding, screen])
 
   useEffect(() => {
-    if (!authUserId || screen !== 'app' || !/^[0-9a-f-]{36}$/i.test(primaryProfile.id)) {
-      return
-    }
-
-    const updatePayload = {
-      channel_name: channelContext.channelName || primaryProfile.channelName || 'Untitled Channel',
-      niche: channelContext.niche || primaryProfile.niche || null,
-      audience: channelContext.audience || channelContext.targetAudience || primaryProfile.audience || null,
-      tone: channelContext.tone || primaryProfile.tone || null,
-      video_length: channelContext.videoLength || primaryProfile.length || null,
-      video_format: channelContext.videoFormat || primaryProfile.videoFormat || null,
-      topic_focus: channelContext.videoTopicIdea || primaryProfile.topicFocus || null,
-      target_audience: channelContext.targetAudience || primaryProfile.targetAudience || null,
-      channel_stage: channelContext.channelStage || primaryProfile.channelStage || null,
-      audience_knowledge_level: channelContext.audienceKnowledgeLevel || primaryProfile.audienceKnowledgeLevel || null,
-      audience_pain_points: channelContext.audiencePainPoints || primaryProfile.audiencePainPoints || null,
-      user_notes: channelContext.userNotes || primaryProfile.userNotes || null,
-      monetization_goal: channelContext.monetizationGoal || primaryProfile.monetizationGoal || null,
-      content_pillars: toCsv(channelContext.contentPillars) || primaryProfile.pillars || null,
-      example_channels: toCsv(channelContext.exampleChannels) || primaryProfile.inspirations || null,
-    }
-    const nextSignature = JSON.stringify({ profileId: primaryProfile.id, ...updatePayload })
-
-    if (channelSyncSignatureRef.current === nextSignature) {
-      return
-    }
-
-    const timeout = setTimeout(() => {
-      void channelProfileService.update(primaryProfile.id, authUserId, updatePayload).then((row) => {
-        channelSyncSignatureRef.current = nextSignature
-        channelSyncErrorShownRef.current = false
-        setProfiles((current) => {
-          const mapped = toChannelProfile(row)
-          const rest = current.filter((profile) => profile.id !== mapped.id)
-          return [mapped, ...rest]
-        })
-      }).catch(() => {
-        if (!channelSyncErrorShownRef.current) {
-          openToast('Unable to sync channel system data right now.')
-          channelSyncErrorShownRef.current = true
-        }
-      })
-    }, 600)
-
-    return () => clearTimeout(timeout)
-  }, [authUserId, channelContext, primaryProfile, screen])
-
-  useEffect(() => {
     if (sessionLoading) {
       return
     }
@@ -1260,6 +1188,12 @@ function Home() {
 
         const completedAt = new Date().toISOString()
         const { onboardingRow } = await saveOnboardingSnapshot(sessionUserId, onboarding, completedAt)
+        const defaultProfile = await channelProfileService.upsertDefault(buildDefaultProfileInput(sessionUserId, onboarding))
+        setProfiles((current) => {
+          const mapped = toChannelProfile(defaultProfile)
+          const rest = current.filter((profile) => profile.id !== mapped.id)
+          return [mapped, ...rest]
+        })
         const normalizedOnboarding = toOnboardingState(onboardingRow)
         if (!onboardingRow.completed_at) {
           throw new Error('Onboarding completion was not persisted.')
@@ -1315,6 +1249,20 @@ function Home() {
 
   const getCurrentScriptText = () => polishedScriptText || formatScriptText(scriptDraft || undefined)
 
+  const refreshScriptsFromSupabase = async (userId: string, preferredScriptId?: string) => {
+    const scriptRows = await scriptService.listByUserId(userId)
+    const mappedScripts = scriptRows.map((script) => toSavedScript(script, selectedProfile.channelName))
+    setScripts(mappedScripts)
+
+    const nextSelectedScriptId =
+      preferredScriptId && mappedScripts.some((script) => script.id === preferredScriptId)
+        ? preferredScriptId
+        : mappedScripts[0]?.id || ''
+
+    setSelectedScriptId(nextSelectedScriptId)
+    return mappedScripts
+  }
+
   const upsertSavedScript = async (
     generated: GeneratedScript,
     options: { notify: boolean; fullScriptBody?: string; outlineSections?: Array<{ heading: string; content: string }> },
@@ -1324,9 +1272,6 @@ function Home() {
       return
     }
 
-    const recordId = autosavedScriptId || `sc-${Date.now()}`
-    const nowIso = new Date().toISOString()
-    const existing = autosavedScriptId ? scripts.find((script) => script.id === autosavedScriptId) : null
     const formattedBody = options.fullScriptBody || formatScriptText(generated)
     const finalOutlineSections =
       options.outlineSections ||
@@ -1334,68 +1279,70 @@ function Home() {
         heading: section.section,
         content: section.content,
       }))
-    const wordCount = formattedBody.trim() ? formattedBody.trim().split(/\s+/).length : 0
-
-    const nextScript: SavedScript = {
-      id: recordId,
-      title: generated.script.title || `Untitled Script (${new Date().toLocaleDateString()})`,
-      selectedTitle: selectedTitle || generated.script.title || 'Untitled Script',
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      createdAt: existing?.createdAt || nowIso,
-      updatedAt: nowIso,
-      profile: selectedProfile.channelName,
-      niche: channelContext.niche,
-      tone: channelContext.tone || primaryProfile.tone,
-      type: channelContext.videoFormat,
-      status: 'Draft',
-      favorite: existing?.favorite || false,
-      outlineSections: finalOutlineSections,
-      fullScriptBody: formattedBody,
-      script: formattedBody,
-    }
+    const wordCount = formattedBody.length
+    const generatedTitle = generated.script.title || `Untitled Script (${new Date().toLocaleDateString()})`
+    const generatedIdea = selectedIdea?.title || selectedIdea?.concept || null
+    const generatedOutline = JSON.stringify(finalOutlineSections)
     const channelProfileId = /^[0-9a-f-]{36}$/i.test(selectedProfile.id) ? selectedProfile.id : null
 
     try {
-      await scriptService.upsertScript({
-        id: recordId,
-        user_id: authUserId,
-        channel_profile_id: channelProfileId,
-        title: nextScript.title,
-        selected_title: nextScript.selectedTitle,
-        idea: selectedIdea?.idea || null,
-        outline: JSON.stringify(finalOutlineSections),
-        full_script: formattedBody,
-        status: nextScript.status,
-        word_count: wordCount,
-        niche: nextScript.niche,
-        tone: nextScript.tone,
-        script_type: nextScript.type,
-        favorite: nextScript.favorite,
-      })
+      if (autosavedScriptId) {
+        await scriptService.updateScript(autosavedScriptId, authUserId, {
+          channel_profile_id: channelProfileId,
+          title: generatedTitle,
+          selected_title: selectedTitle || generatedTitle,
+          idea: generatedIdea,
+          outline: generatedOutline,
+          full_script: formattedBody,
+          status: 'completed',
+          word_count: wordCount,
+          niche: channelContext.niche,
+          tone: channelContext.tone || primaryProfile.tone,
+          content_pillars: toCsv(channelContext.contentPillars),
+          example_channels: toCsv(channelContext.exampleChannels),
+          topic_focus: channelContext.videoTopicIdea || null,
+          user_notes: channelContext.userNotes || null,
+          video_length: channelContext.videoLength || null,
+          generated_ideas: videoIdeas.length ? JSON.stringify(videoIdeas) : null,
+          script_type: 'youtube',
+        })
 
-      setScripts((current) => {
-        if (autosavedScriptId) {
-          return current.map((script) => (script.id === autosavedScriptId ? { ...script, ...nextScript } : script))
-        }
-
-        return [nextScript, ...current]
-      })
-
-      if (!autosavedScriptId) {
-        await usageStatsService.incrementScriptsGenerated(authUserId)
-        const freshUsage = await usageStatsService.getByUserId(authUserId)
-        setUsageStats(freshUsage)
-      } else {
+        await refreshScriptsFromSupabase(authUserId, autosavedScriptId)
         const freshUsage = await usageStatsService.markActive(authUserId)
         setUsageStats(freshUsage)
+      } else {
+        const insertedScript = await scriptService.insertScript({
+          user_id: authUserId,
+          channel_profile_id: channelProfileId,
+          title: generatedTitle,
+          selected_title: selectedTitle || generatedTitle,
+          idea: generatedIdea,
+          outline: generatedOutline,
+          full_script: formattedBody,
+          status: 'completed',
+          word_count: wordCount,
+          niche: channelContext.niche,
+          tone: channelContext.tone || primaryProfile.tone,
+          content_pillars: toCsv(channelContext.contentPillars),
+          example_channels: toCsv(channelContext.exampleChannels),
+          topic_focus: channelContext.videoTopicIdea || null,
+          user_notes: channelContext.userNotes || null,
+          video_length: channelContext.videoLength || null,
+          generated_ideas: videoIdeas.length ? JSON.stringify(videoIdeas) : null,
+          script_type: 'youtube',
+          favorite: false,
+        })
+
+        setAutosavedScriptId(insertedScript.id)
+        await refreshScriptsFromSupabase(authUserId, insertedScript.id)
+        const freshUsage = await usageStatsService.incrementScriptsGenerated(authUserId)
+        setUsageStats(freshUsage)
       }
-    } catch {
+    } catch (error) {
+      console.error('Failed to save script to Supabase.', error)
       openToast('Unable to save script to cloud storage.')
       return
     }
-
-    setAutosavedScriptId(recordId)
-    setSelectedScriptId(recordId)
 
     if (options.notify) {
       openToast('Script saved to scripts library.')

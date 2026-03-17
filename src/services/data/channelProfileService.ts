@@ -3,50 +3,44 @@ import type { ChannelProfileRow } from './types'
 
 export type ChannelProfileInput = {
   user_id: string
-  channel_name: string
+  channel_name?: string | null
   niche: string | null
   audience: string | null
-  age_range: string | null
   tone: string | null
-  upload_frequency: string | null
-  video_length: string | null
-  video_format: string | null
-  topic_focus: string | null
-  target_audience: string | null
-  channel_stage: string | null
-  audience_knowledge_level: string | null
-  audience_pain_points: string | null
-  user_notes: string | null
   monetization_goal: string | null
-  content_pillars: string | null
-  example_channels: string | null
   is_default?: boolean
 }
 
-const CONTEXT_FIELDS: Array<keyof ChannelProfileInput> = [
-  'age_range',
-  'upload_frequency',
-  'video_format',
-  'topic_focus',
-  'target_audience',
-  'channel_stage',
-  'audience_knowledge_level',
-  'audience_pain_points',
-  'user_notes',
-]
+const PROFILE_WRITABLE_FIELDS = [
+  'user_id',
+  'channel_name',
+  'niche',
+  'audience',
+  'tone',
+  'monetization_goal',
+  'is_default',
+] as const
 
-const isUndefinedColumnError = (error: unknown) =>
-  typeof error === 'object' &&
-  error !== null &&
-  'code' in error &&
-  (error as { code?: unknown }).code === '42703'
-
-const stripContextFields = <T extends Partial<ChannelProfileInput>>(payload: T): T => {
-  const next = { ...payload }
-  for (const field of CONTEXT_FIELDS) {
-    delete next[field]
+const toWritablePayload = (payload: Partial<ChannelProfileInput>): Partial<ChannelProfileInput> => {
+  const next: Partial<ChannelProfileInput> = {}
+  for (const field of PROFILE_WRITABLE_FIELDS) {
+    if (payload[field] !== undefined) {
+      ;(next as Record<string, unknown>)[field] = payload[field]
+    }
   }
   return next
+}
+
+const cleanChannelName = (value: string | null | undefined) => {
+  const normalized = value?.trim()
+  if (!normalized || normalized === 'Untitled Channel') {
+    return null
+  }
+  return normalized
+}
+
+const logProfileWrite = (payload: Partial<ChannelProfileInput>) => {
+  console.log('Updating channel profile:', payload)
 }
 
 export const channelProfileService = {
@@ -66,7 +60,7 @@ export const channelProfileService = {
   },
 
   async upsertDefault(input: ChannelProfileInput) {
-    const payload = { ...input, is_default: true }
+    const payload = toWritablePayload({ ...input, is_default: true })
     const { data: existingRows, error: existingError } = await supabase
       .from('channel_profiles')
       .select('*')
@@ -81,21 +75,25 @@ export const channelProfileService = {
     }
 
     const existing = existingRows?.[0] || null
+    const resolvedChannelName =
+      cleanChannelName(payload.channel_name) ||
+      existing?.channel_name ||
+      (!existing ? 'Untitled Channel' : null)
 
     if (existing) {
-      const updateDefault = async (updatePayload: Partial<ChannelProfileInput>) =>
-        supabase
-          .from('channel_profiles')
-          .update(updatePayload)
-          .eq('id', existing.id)
-          .eq('user_id', input.user_id)
-          .select('*')
-          .single<ChannelProfileRow>()
+      const updatePayload = toWritablePayload({
+        ...payload,
+        channel_name: resolvedChannelName ?? undefined,
+      })
 
-      let { data, error } = await updateDefault(payload)
-      if (error && isUndefinedColumnError(error)) {
-        ;({ data, error } = await updateDefault(stripContextFields(payload)))
-      }
+      logProfileWrite(updatePayload)
+      const { data, error } = await supabase
+        .from('channel_profiles')
+        .update(updatePayload)
+        .eq('id', existing.id)
+        .eq('user_id', input.user_id)
+        .select('*')
+        .single<ChannelProfileRow>()
 
       if (error) {
         throw error
@@ -103,17 +101,17 @@ export const channelProfileService = {
       return data
     }
 
-    const insertDefault = async (insertPayload: ChannelProfileInput) =>
-      supabase
-        .from('channel_profiles')
-        .insert(insertPayload)
-        .select('*')
-        .single<ChannelProfileRow>()
+    const insertPayload = toWritablePayload({
+      ...payload,
+      channel_name: resolvedChannelName || 'Untitled Channel',
+    }) as ChannelProfileInput
 
-    let { data, error } = await insertDefault(payload)
-    if (error && isUndefinedColumnError(error)) {
-      ;({ data, error } = await insertDefault(stripContextFields(payload)))
-    }
+    logProfileWrite(insertPayload)
+    const { data, error } = await supabase
+      .from('channel_profiles')
+      .insert(insertPayload)
+      .select('*')
+      .single<ChannelProfileRow>()
 
     if (error) {
       throw error
@@ -122,17 +120,17 @@ export const channelProfileService = {
   },
 
   async create(input: ChannelProfileInput) {
-    const createProfile = async (createPayload: ChannelProfileInput) =>
-      supabase
-        .from('channel_profiles')
-        .insert(createPayload)
-        .select('*')
-        .single<ChannelProfileRow>()
+    const payload = toWritablePayload({
+      ...input,
+      channel_name: cleanChannelName(input.channel_name) || 'Untitled Channel',
+    }) as ChannelProfileInput
 
-    let { data, error } = await createProfile(input)
-    if (error && isUndefinedColumnError(error)) {
-      ;({ data, error } = await createProfile(stripContextFields(input)))
-    }
+    logProfileWrite(payload)
+    const { data, error } = await supabase
+      .from('channel_profiles')
+      .insert(payload)
+      .select('*')
+      .single<ChannelProfileRow>()
 
     if (error) {
       throw error
@@ -142,19 +140,23 @@ export const channelProfileService = {
   },
 
   async update(id: string, userId: string, updates: Partial<ChannelProfileInput>) {
-    const updateProfile = async (updatePayload: Partial<ChannelProfileInput>) =>
-      supabase
-        .from('channel_profiles')
-        .update(updatePayload)
-        .eq('id', id)
-        .eq('user_id', userId)
-        .select('*')
-        .single<ChannelProfileRow>()
+    const payload = toWritablePayload(updates)
+    const sanitizedName = cleanChannelName(payload.channel_name)
 
-    let { data, error } = await updateProfile(updates)
-    if (error && isUndefinedColumnError(error)) {
-      ;({ data, error } = await updateProfile(stripContextFields(updates)))
+    if (payload.channel_name !== undefined && !sanitizedName) {
+      delete payload.channel_name
+    } else if (sanitizedName) {
+      payload.channel_name = sanitizedName
     }
+
+    logProfileWrite(payload)
+    const { data, error } = await supabase
+      .from('channel_profiles')
+      .update(payload)
+      .eq('id', id)
+      .eq('user_id', userId)
+      .select('*')
+      .single<ChannelProfileRow>()
 
     if (error) {
       throw error
