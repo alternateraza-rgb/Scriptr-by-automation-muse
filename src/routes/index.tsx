@@ -1,4 +1,4 @@
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute, useLocation, useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import {
@@ -201,6 +201,7 @@ const PRIMARY_GOALS = [
 const INITIAL_SCRIPTS: SavedScript[] = []
 
 const ONBOARDING_TOTAL_STEPS = 11
+const DASHBOARD_PATH = '/dashboard'
 
 const WORKFLOW_STEPS: Array<{ id: WorkflowStep; label: string }> = [
   { id: 1, label: 'Channel Context' },
@@ -715,7 +716,25 @@ const downloadScriptPdf = async (scriptTitle: string, scriptContent: string) => 
   doc.save(`${filename}.pdf`)
 }
 
-function Home() {
+export function Home() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const isRedirectingToDashboardRef = useRef(false)
+
+  const redirectToDashboardIfNeeded = () => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    if (location.pathname === DASHBOARD_PATH || isRedirectingToDashboardRef.current) {
+      return
+    }
+
+    isRedirectingToDashboardRef.current = true
+    void navigate({ to: DASHBOARD_PATH, replace: true }).finally(() => {
+      isRedirectingToDashboardRef.current = false
+    })
+  }
+
   const [screen, setScreen] = useState<Screen>('landing')
   const [activeNav, setActiveNav] = useState<NavKey>('dashboard')
   const [workflowStep, setWorkflowStep] = useState<WorkflowStep>(1)
@@ -1104,6 +1123,9 @@ function Home() {
             (session.user.user_metadata?.full_name as string | undefined) || undefined,
             { notify: true, setInlineError: true },
           )
+          if (isActive) {
+            redirectToDashboardIfNeeded()
+          }
         } else if (oauthErrorDescription || oauthError) {
           clearWorkspaceState()
           setScreen('signin')
@@ -1149,13 +1171,14 @@ function Home() {
         return
       }
 
-      if (session?.user && session.user.email) {
+      if (event === 'SIGNED_IN' && session?.user && session.user.email) {
         void hydrateAccountDataSafely(
           session.user.id,
           session.user.email,
           (session.user.user_metadata?.full_name as string | undefined) || undefined,
           { notify: true },
         )
+        redirectToDashboardIfNeeded()
       } else if (event === 'SIGNED_OUT') {
         clearWorkspaceState()
         setScreen('signin')
@@ -1364,6 +1387,7 @@ function Home() {
             notify: true,
             setInlineError: true,
           })
+          redirectToDashboardIfNeeded()
           setScreen('onboarding')
           openToast('Account created. Personalizing your workspace.')
         } else {
@@ -1382,6 +1406,7 @@ function Home() {
           (signinResult.user.user_metadata?.full_name as string | undefined) || undefined,
           { notify: true, setInlineError: true },
         )
+        redirectToDashboardIfNeeded()
         openToast('Signed in. Welcome back to Scriptr.')
       }
     } catch (error) {
