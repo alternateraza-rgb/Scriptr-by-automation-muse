@@ -711,6 +711,8 @@ function Home() {
   const [isEditingOutline, setIsEditingOutline] = useState(false)
   const [isEditingScript, setIsEditingScript] = useState(false)
   const [isSavingScriptDetail, setIsSavingScriptDetail] = useState(false)
+  const [isDeleteScriptDialogOpen, setIsDeleteScriptDialogOpen] = useState(false)
+  const [isDeletingSelectedScript, setIsDeletingSelectedScript] = useState(false)
   const [usageStats, setUsageStats] = useState<UsageStatsRow | null>(null)
 
   const [channelContext, setChannelContext] = useState<ChannelContext>({
@@ -742,10 +744,24 @@ function Home() {
 
   const [isGenerating, setIsGenerating] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState('')
+  const [loadingSubMessages, setLoadingSubMessages] = useState<string[]>([])
+  const [loadingSubMessageIndex, setLoadingSubMessageIndex] = useState(0)
   const [generationError, setGenerationError] = useState('')
   const [retryAction, setRetryAction] = useState<null | (() => void)>(null)
   const [journeyFocused, setJourneyFocused] = useState(false)
   const onboardingSyncErrorShownRef = useRef(false)
+
+  useEffect(() => {
+    if (!isGenerating || loadingSubMessages.length < 2) {
+      return
+    }
+
+    const interval = window.setInterval(() => {
+      setLoadingSubMessageIndex((current) => (current + 1) % loadingSubMessages.length)
+    }, 1600)
+
+    return () => window.clearInterval(interval)
+  }, [isGenerating, loadingSubMessages])
 
   const primaryProfile = useMemo(
     () => profiles.find((profile) => profile.isDefault) || profiles[0] || buildPrimaryProfile(onboarding),
@@ -1033,6 +1049,8 @@ function Home() {
       setIsEditingTitle(false)
       setIsEditingOutline(false)
       setIsEditingScript(false)
+      setIsDeleteScriptDialogOpen(false)
+      setIsDeletingSelectedScript(false)
       return
     }
 
@@ -1409,9 +1427,13 @@ function Home() {
     message: string,
     retry: () => void,
     action: () => Promise<void>,
+    options?: { subMessages?: string[] },
   ) => {
     setIsGenerating(true)
     setLoadingMessage(message)
+    const safeSubMessages = Array.isArray(options?.subMessages) ? options.subMessages.filter(Boolean) : []
+    setLoadingSubMessages(safeSubMessages)
+    setLoadingSubMessageIndex(0)
     setGenerationError('')
     setRetryAction(null)
     try {
@@ -1424,7 +1446,23 @@ function Home() {
     } finally {
       setIsGenerating(false)
       setLoadingMessage('')
+      setLoadingSubMessages([])
+      setLoadingSubMessageIndex(0)
     }
+  }
+
+  const normalizeOutlierStatus = (value: unknown): 'Low' | 'Medium' | 'High' => {
+    if (typeof value !== 'string') {
+      return 'Medium'
+    }
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'low') {
+      return 'Low'
+    }
+    if (normalized === 'high') {
+      return 'High'
+    }
+    return 'Medium'
   }
 
   const generateIdeas = async () => {
@@ -1434,9 +1472,9 @@ function Home() {
     }
 
     setJourneyFocused(true)
-    await withGenerationState('Analyzing your niche and generating video ideas...', () => void generateIdeas(), async () => {
+    await withGenerationState('Conducting outlier research...', () => void generateIdeas(), async () => {
       const data = await requestIdeas(channelContext)
-      setVideoIdeas(data.ideas)
+      setVideoIdeas(data.ideas.slice(0, 3))
       setSelectedIdeaIndex(null)
       setTitleOptions(null)
       setSelectedTitle('')
@@ -1447,6 +1485,13 @@ function Home() {
       setAutosavedScriptId(null)
       setWorkflowStep(2)
       openToast('Video ideas generated.')
+    }, {
+      subMessages: [
+        'Scanning YouTube patterns...',
+        'Analyzing outperforming videos...',
+        'Finding unusual winners in this niche...',
+        'Comparing strong content angles...',
+      ],
     })
   }
 
@@ -1687,24 +1732,31 @@ function Home() {
   }
 
   const deleteSelectedScript = async () => {
-    if (!selectedScript || !authUserId) {
+    if (!selectedScript || !authUserId || isDeletingSelectedScript) {
       return
     }
 
-    const shouldDelete = window.confirm('Are you sure you want to delete this script')
-    if (!shouldDelete) {
-      return
-    }
-
+    setIsDeletingSelectedScript(true)
     try {
       await scriptService.deleteScript(selectedScript.id, authUserId)
       setScripts((current) => current.filter((script) => script.id !== selectedScript.id))
       setSelectedScriptId('')
       setScriptDetailView('title')
+      setIsDeleteScriptDialogOpen(false)
       openToast('Script deleted.')
     } catch {
       openToast('Unable to delete script.')
+    } finally {
+      setIsDeletingSelectedScript(false)
     }
+  }
+
+  const requestDeleteSelectedScript = () => {
+    if (!selectedScript || !authUserId) {
+      return
+    }
+
+    setIsDeleteScriptDialogOpen(true)
   }
 
   const recentScripts = scripts.slice(0, 5)
@@ -2399,11 +2451,16 @@ function Home() {
                   </div>
 
                   {isGenerating ? (
-                    <div className="skeleton-stack">
-                      <p>{loadingMessage || 'Generating...'}</p>
-                      <div className="skeleton" />
-                      <div className="skeleton" />
-                      <div className="skeleton" />
+                    <div className={`skeleton-stack ${loadingMessage === 'Conducting outlier research...' ? 'premium-loading' : ''}`}>
+                      <p className="loading-primary">{loadingMessage || 'Generating...'}</p>
+                      {loadingSubMessages.length > 0 ? (
+                        <p className="loading-secondary">{loadingSubMessages[loadingSubMessageIndex] || loadingSubMessages[0]}</p>
+                      ) : null}
+                      <div className="card-grid three">
+                        <div className="skeleton premium-skeleton" />
+                        <div className="skeleton premium-skeleton" />
+                        <div className="skeleton premium-skeleton" />
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -2442,31 +2499,38 @@ function Home() {
                             </div>
                           ) : null}
                           <div className="card-grid">
-                            {videoIdeas.map((idea, index) => (
-                              <article
-                                className={`result-card clickable-card ${selectedIdeaIndex === index ? 'active' : ''}`}
-                                key={`${idea.title}-${index}`}
-                                onClick={() => void generateTitlesForIdea(index)}
-                                role="button"
-                                tabIndex={0}
-                                onKeyDown={(event) => {
-                                  if (event.key === 'Enter' || event.key === ' ') {
-                                    event.preventDefault()
-                                    void generateTitlesForIdea(index)
-                                  }
-                                }}
-                              >
-                                <h4>{idea.title}</h4>
-                                <p>{idea.concept}</p>
-                                <p>
-                                  <strong>Why it works:</strong> {idea.why_it_works}
-                                </p>
-                                <p>
-                                  <strong>Hook angle:</strong> {idea.hook_angle}
-                                </p>
-                                <span className="tag">Click score: {idea.click_score}</span>
-                              </article>
-                            ))}
+                            {videoIdeas.slice(0, 3).map((idea, index) => {
+                              const outlierStatus = normalizeOutlierStatus(idea.outlierStatus)
+
+                              return (
+                                <article
+                                  className={`result-card clickable-card ${selectedIdeaIndex === index ? 'active' : ''}`}
+                                  key={`${idea.title}-${index}`}
+                                  onClick={() => void generateTitlesForIdea(index)}
+                                  role="button"
+                                  tabIndex={0}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault()
+                                      void generateTitlesForIdea(index)
+                                    }
+                                  }}
+                                >
+                                  <h4>{idea.title}</h4>
+                                  <p>{idea.concept}</p>
+                                  <p>
+                                    <strong>Why it works:</strong> {idea.why_it_works}
+                                  </p>
+                                  <p>
+                                    <strong>Hook angle:</strong> {idea.hook_angle}
+                                  </p>
+                                  <div className="idea-card-footer">
+                                    <span className="tag">Click score: {idea.click_score}</span>
+                                    <span className={`outlier-bubble status-${outlierStatus.toLowerCase()}`}>Outlier: {outlierStatus}</span>
+                                  </div>
+                                </article>
+                              )
+                            })}
                           </div>
                           <div className="action-row">
                             <button className="btn secondary" onClick={generateIdeas}>
@@ -2745,7 +2809,7 @@ function Home() {
                       <button className="btn secondary" onClick={exportSelectedScriptPdf}>
                         Export
                       </button>
-                      <button className="btn ghost" onClick={() => void deleteSelectedScript()}>
+                      <button className="btn ghost" onClick={requestDeleteSelectedScript}>
                         Delete
                       </button>
                     </div>
@@ -3054,6 +3118,46 @@ function Home() {
           )
         })}
       </nav>
+
+      {isDeleteScriptDialogOpen && selectedScript && (
+        <div
+          className="confirm-dialog-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (isDeletingSelectedScript) {
+              return
+            }
+            setIsDeleteScriptDialogOpen(false)
+          }}
+        >
+          <section
+            className="confirm-dialog glass-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-script-title"
+            aria-describedby="delete-script-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="delete-script-title">Delete script?</h3>
+            <p id="delete-script-description">
+              This will permanently remove <strong>{selectedScript.selectedTitle || selectedScript.title}</strong> from your
+              scripts library.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button
+                className="btn secondary"
+                onClick={() => setIsDeleteScriptDialogOpen(false)}
+                disabled={isDeletingSelectedScript}
+              >
+                Cancel
+              </button>
+              <button className="btn danger" onClick={() => void deleteSelectedScript()} disabled={isDeletingSelectedScript}>
+                {isDeletingSelectedScript ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {toast && (
         <aside className="toast">
