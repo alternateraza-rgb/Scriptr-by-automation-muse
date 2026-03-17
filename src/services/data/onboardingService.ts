@@ -29,6 +29,7 @@ export const onboardingService = {
       .maybeSingle<OnboardingResponseRow>()
 
     if (error) {
+      console.error('[onboarding_responses:getByUserId] fetch error', { userId, error })
       throw error
     }
 
@@ -43,6 +44,7 @@ export const onboardingService = {
       .single<OnboardingResponseRow>()
 
     if (error) {
+      console.error('[onboarding_responses:upsert] save error', { payload: input, error })
       throw error
     }
 
@@ -53,6 +55,7 @@ export const onboardingService = {
     const { error } = await supabase.from('onboarding_responses').delete().eq('user_id', userId)
 
     if (error) {
+      console.error('[onboarding_responses:deleteByUserId] save error', { userId, error })
       throw error
     }
   },

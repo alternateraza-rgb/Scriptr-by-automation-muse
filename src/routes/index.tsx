@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { jsPDF } from 'jspdf'
 import {
   generateTitles as requestTitles,
   generateIdeas as requestIdeas,
@@ -281,6 +282,41 @@ const parseIsoDate = (value: string | undefined) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
+const outlineSectionsToEditableText = (sections: Array<{ heading: string; content: string }>) => {
+  if (!sections.length) {
+    return ''
+  }
+
+  return sections.map((section) => `${section.heading}\n${section.content}`.trim()).join('\n\n')
+}
+
+const editableTextToOutlineSections = (text: string) => {
+  const normalized = text.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return []
+  }
+
+  return normalized
+    .split(/\n{2,}/)
+    .map((block, index) => {
+      const lines = block
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+
+      if (!lines.length) {
+        return null
+      }
+
+      const [heading, ...contentLines] = lines
+      return {
+        heading: heading || `Section ${index + 1}`,
+        content: contentLines.join('\n').trim(),
+      }
+    })
+    .filter((section): section is { heading: string; content: string } => Boolean(section))
+}
+
 const toOnboardingState = (row: OnboardingResponseRow | null): OnboardingState => {
   if (!row) {
     return ONBOARDING_DEFAULTS
@@ -331,7 +367,11 @@ const normalizeSavedScript = (entry: Partial<SavedScript> & { id: string }): Sav
   }
 }
 
-const toSavedScript = (row: ScriptRow, channelName?: string): SavedScript => {
+const toSavedScript = (
+  row: ScriptRow,
+  profileNamesById?: Record<string, string>,
+  fallbackChannelName?: string,
+): SavedScript => {
   const createdDate = parseIsoDate(row.created_at) || new Date()
   const parsedOutline = (() => {
     if (!row.outline) {
@@ -352,7 +392,10 @@ const toSavedScript = (row: ScriptRow, channelName?: string): SavedScript => {
     date: createdDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
     createdAt: row.created_at,
     updatedAt: row.updated_at || row.created_at,
-    profile: channelName || 'Primary Profile',
+    profile:
+      (row.channel_profile_id ? profileNamesById?.[row.channel_profile_id] : null) ||
+      fallbackChannelName ||
+      'Primary Profile',
     niche: row.niche || 'General',
     tone: row.tone || 'Conversational',
     type: row.script_type || 'Long-form faceless videos',
@@ -371,21 +414,21 @@ const toChannelProfile = (row: ChannelProfileRow): ChannelProfile => ({
   description: `Channel strategy for ${row.channel_name || 'your channel'} focused on ${row.niche || 'General'} content.`,
   audience: row.audience || 'Audience profile not set yet.',
   tone: row.tone || 'Conversational',
-  ageRange: undefined,
-  uploadFrequency: undefined,
-  length: '8-12 minutes',
-  videoFormat: undefined,
-  topicFocus: undefined,
-  targetAudience: row.audience || undefined,
-  channelStage: undefined,
-  audienceKnowledgeLevel: undefined,
-  audiencePainPoints: undefined,
-  userNotes: undefined,
+  ageRange: row.age_range || undefined,
+  uploadFrequency: row.upload_frequency || undefined,
+  length: row.video_length || '8-12 minutes',
+  videoFormat: row.video_format || undefined,
+  topicFocus: row.topic_focus || undefined,
+  targetAudience: row.target_audience || row.audience || undefined,
+  channelStage: row.channel_stage || undefined,
+  audienceKnowledgeLevel: row.audience_knowledge_level || undefined,
+  audiencePainPoints: row.audience_pain_points || undefined,
+  userNotes: row.user_notes || undefined,
   ctaStyle: 'Subscriber CTA',
-  frequency: '1 video per month',
+  frequency: row.upload_frequency || '1 video per month',
   monetizationGoal: row.monetization_goal || 'Build sustainable channel revenue',
-  pillars: 'Educational explainers',
-  inspirations: 'Add inspiration channels',
+  pillars: row.content_pillars || 'Educational explainers',
+  inspirations: row.example_channels || 'Add inspiration channels',
   brandVoice: row.tone || 'Conversational',
   isDefault: Boolean(row.is_default),
 })
@@ -475,232 +518,163 @@ function ScriptrLogo({ compact = false }: { compact?: boolean }) {
   )
 }
 
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-
 const looksLikeHeading = (line: string) => {
   const trimmed = line.trim()
   if (!trimmed) {
     return false
   }
-
-  if (trimmed.endsWith(':')) {
+  if (/^([A-Z][A-Z0-9\s'&/-]{2,}|[A-Z][A-Z0-9\s'&/-]{2,}:)$/.test(trimmed)) {
     return true
   }
-
-  return /^[A-Z0-9][A-Z0-9\s,&'/-]{4,}$/.test(trimmed)
+  return /^(hook|curiosity gap|setup|escalation|new information|mid reset|reveal|payoff|cta|intro|introduction|body|main points?|part \d+|section \d+|conclusion|outro)\b[:\s-]*/i.test(trimmed)
 }
 
-const renderScriptBlocksForPdf = (text: string) => {
+type ScriptPdfBlock =
+  | { kind: 'heading'; text: string }
+  | { kind: 'paragraph'; text: string }
+
+const parseScriptBlocksForPdf = (text: string): ScriptPdfBlock[] => {
   const normalized = text.replace(/\r\n/g, '\n').trim()
   if (!normalized) {
-    return '<p class="script-paragraph">No script content yet.</p>'
+    return [{ kind: 'paragraph', text: 'No script content yet.' }]
   }
 
-  const blocks = normalized
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean)
+  const lines = normalized.split('\n').map((line) => line.trim())
+  const parsed: ScriptPdfBlock[] = []
+  let paragraphBuffer: string[] = []
 
-  return blocks
-    .map((block) => {
-      const lines = block
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
+  const flushParagraph = () => {
+    if (!paragraphBuffer.length) {
+      return
+    }
+    parsed.push({ kind: 'paragraph', text: paragraphBuffer.join(' ').trim() })
+    paragraphBuffer = []
+  }
 
-      if (!lines.length) {
-        return ''
-      }
+  lines.forEach((line) => {
+    if (!line) {
+      flushParagraph()
+      return
+    }
 
-      const [firstLine, ...rest] = lines
-      if (looksLikeHeading(firstLine)) {
-        const heading = `<h2 class="script-heading">${escapeHtml(firstLine.replace(/:\s*$/, ''))}</h2>`
-        if (!rest.length) {
-          return heading
-        }
+    if (looksLikeHeading(line)) {
+      flushParagraph()
+      parsed.push({ kind: 'heading', text: line.replace(/:\s*$/, '') })
+      return
+    }
 
-        const paragraph = `<p class="script-paragraph">${rest.map((line) => escapeHtml(line)).join('<br />')}</p>`
-        return `${heading}\n${paragraph}`
-      }
+    paragraphBuffer.push(line)
+  })
 
-      return `<p class="script-paragraph">${lines.map((line) => escapeHtml(line)).join('<br />')}</p>`
-    })
-    .filter(Boolean)
-    .join('\n')
+  flushParagraph()
+
+  return parsed.length ? parsed : [{ kind: 'paragraph', text: normalized }]
 }
 
-const buildScriptPdfHtml = (scriptTitle: string, scriptContent: string) => {
-  const safeTitle = escapeHtml(scriptTitle || 'Untitled Script')
-  const safeDate = escapeHtml(
-    new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-  )
-  const renderedContent = renderScriptBlocksForPdf(scriptContent)
+const getPdfSafeFilename = (title: string) => {
+  const normalized = (title.trim() || 'untitled-script').toLowerCase()
+  const cleaned = normalized
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+  return cleaned || 'untitled-script'
+}
 
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${safeTitle}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&display=swap"
-      rel="stylesheet"
-    />
-    <style>
-      @page {
-        size: A4;
-        margin: 0.62in;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        color: #1f1a17;
-        background: #f5efe5;
-        font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-      .sheet {
-        background: #fffdfa;
-        border: 1px solid #eadfce;
-        border-radius: 22px;
-        padding: 42px 46px 48px;
-        box-shadow: 0 12px 40px rgba(41, 24, 10, 0.1);
-      }
-      .document-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding-bottom: 18px;
-        margin-bottom: 28px;
-        border-bottom: 1px solid #e9ddcb;
-      }
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .brand-mark {
-        width: 34px;
-        height: 34px;
-        flex-shrink: 0;
-      }
-      .brand-name {
-        font-family: "Playfair Display", Georgia, serif;
-        font-size: 21px;
-        font-weight: 700;
-        letter-spacing: 0.01em;
-        color: #121212;
-      }
-      .brand-subtitle {
-        margin-top: 2px;
-        font-size: 10px;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-        color: #8d7257;
-      }
-      .meta {
-        text-align: right;
-      }
-      .meta-label {
-        margin: 0;
-        font-size: 9px;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        color: #9e8367;
-      }
-      .meta-date {
-        margin: 4px 0 0;
-        font-size: 12px;
-        color: #3f3123;
-      }
-      .script-title {
-        margin: 0 0 24px;
-        font-family: "Playfair Display", Georgia, serif;
-        font-size: 31px;
-        line-height: 1.22;
-        letter-spacing: 0.01em;
-        color: #1c1a17;
-      }
-      .script-body {
-        font-size: 13.5px;
-        line-height: 1.85;
-        color: #2a231e;
-      }
-      .script-heading {
-        margin: 30px 0 10px;
-        font-family: "Playfair Display", Georgia, serif;
-        font-size: 18px;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: #70281f;
-        break-after: avoid;
-      }
-      .script-heading:first-child {
-        margin-top: 0;
-      }
-      .script-paragraph {
-        margin: 0 0 16px;
-        text-align: left;
-        break-inside: avoid;
-        orphans: 3;
-        widows: 3;
-      }
-    </style>
-  </head>
-  <body>
-    <main class="sheet">
-      <header class="document-header">
-        <div class="brand">
-          <svg class="brand-mark" viewBox="0 0 56 56" aria-hidden="true">
-            <defs>
-              <linearGradient id="scriptrMarkPdf" x1="0" x2="1" y1="0" y2="1">
-                <stop offset="0%" stop-color="#FF3347" />
-                <stop offset="100%" stop-color="#E11D2E" />
-              </linearGradient>
-            </defs>
-            <rect x="3" y="3" width="50" height="50" rx="14" fill="#0B0B0B" stroke="#2A2A2A" />
-            <path
-              d="M38 18c-2.2-2.7-5.6-4-10.1-4-6.5 0-11 3.1-11 8 0 4.1 2.7 6.3 8.7 7.4l4.2.7c2.6.5 3.7 1.4 3.7 2.9 0 2.1-2.3 3.4-5.9 3.4-3.5 0-6.1-1.2-8.1-3.4"
-              fill="none"
-              stroke="url(#scriptrMarkPdf)"
-              stroke-width="4"
-              stroke-linecap="round"
-            />
-            <path d="M35 16l7 0" stroke="#FF3347" stroke-width="4" stroke-linecap="round" />
-          </svg>
-          <div>
-            <p class="brand-name">Scriptr</p>
-            <p class="brand-subtitle">Automation Muse</p>
-          </div>
-        </div>
-        <div class="meta">
-          <p class="meta-label">Exported Script</p>
-          <p class="meta-date">${safeDate}</p>
-        </div>
-      </header>
-      <h1 class="script-title">${safeTitle}</h1>
-      <article class="script-body">${renderedContent}</article>
-    </main>
-    <script>
-      window.addEventListener('load', () => {
-        setTimeout(() => window.print(), 180)
-      })
-      window.addEventListener('afterprint', () => window.close())
-    </script>
-  </body>
-</html>`
+const downloadScriptPdf = async (scriptTitle: string, scriptContent: string) => {
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', compress: true })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const marginX = 54
+  const topMargin = 56
+  const bottomMargin = 56
+  const contentWidth = pageWidth - marginX * 2
+  const blocks = parseScriptBlocksForPdf(scriptContent || 'No script content yet.')
+  const exportDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const title = scriptTitle.trim() || 'Untitled Script'
+  const filename = getPdfSafeFilename(title)
+  const headerY = topMargin
+  const contentStartY = 128
+  let y = contentStartY
+
+  const drawBrandMark = (x: number, yPos: number) => {
+    doc.setFillColor(11, 11, 11)
+    doc.roundedRect(x, yPos, 26, 26, 7, 7, 'F')
+    doc.setTextColor(255, 51, 71)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(15)
+    doc.text('S', x + 8.5, yPos + 18.25)
+  }
+
+  const drawPageChrome = (pageNumber: number) => {
+    doc.setFillColor(245, 239, 229)
+    doc.rect(0, 0, pageWidth, pageHeight, 'F')
+    doc.setFillColor(255, 253, 250)
+    doc.roundedRect(marginX - 12, topMargin - 20, contentWidth + 24, pageHeight - topMargin - bottomMargin + 20, 14, 14, 'F')
+
+    drawBrandMark(marginX, headerY - 4)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(18)
+    doc.setTextColor(20, 20, 20)
+    doc.text('Scriptr', marginX + 34, headerY + 14)
+    doc.setFontSize(10)
+    doc.setTextColor(123, 103, 82)
+    doc.text('AUTOMATION MUSE', marginX + 34, headerY + 28)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(108, 89, 70)
+    doc.text(`Exported ${exportDate}`, pageWidth - marginX, headerY + 4, { align: 'right' })
+    doc.text(`Page ${pageNumber}`, pageWidth - marginX, headerY + 18, { align: 'right' })
+
+    doc.setDrawColor(231, 219, 203)
+    doc.line(marginX, contentStartY - 12, pageWidth - marginX, contentStartY - 12)
+  }
+
+  const ensureSpace = (height: number) => {
+    if (y + height <= pageHeight - bottomMargin) {
+      return
+    }
+    doc.addPage()
+    const pageNumber = doc.getNumberOfPages()
+    drawPageChrome(pageNumber)
+    y = contentStartY
+  }
+
+  const writeBodyParagraph = (paragraphText: string) => {
+    doc.setFont('times', 'normal')
+    doc.setFontSize(12)
+    doc.setTextColor(34, 26, 20)
+    const lines = doc.splitTextToSize(paragraphText, contentWidth)
+    const lineHeight = 18
+    ensureSpace(lines.length * lineHeight + 8)
+    doc.text(lines, marginX, y)
+    y += lines.length * lineHeight + 8
+  }
+
+  drawPageChrome(1)
+
+  doc.setFont('times', 'bold')
+  doc.setFontSize(24)
+  doc.setTextColor(28, 26, 23)
+  const titleLines = doc.splitTextToSize(title, contentWidth)
+  ensureSpace(titleLines.length * 30 + 12)
+  doc.text(titleLines, marginX, y)
+  y += titleLines.length * 30 + 8
+
+  blocks.forEach((block) => {
+    if (block.kind === 'heading') {
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(13)
+      doc.setTextColor(112, 40, 31)
+      const headingLines = doc.splitTextToSize(block.text, contentWidth)
+      ensureSpace(headingLines.length * 18 + 8)
+      doc.text(headingLines, marginX, y)
+      y += headingLines.length * 18 + 6
+      return
+    }
+    writeBodyParagraph(block.text)
+  })
+
+  doc.save(`${filename}.pdf`)
 }
 
 function Home() {
@@ -730,13 +704,18 @@ function Home() {
   const [scripts, setScripts] = useState<SavedScript[]>(INITIAL_SCRIPTS)
   const [selectedScriptId, setSelectedScriptId] = useState('')
   const [scriptDetailView, setScriptDetailView] = useState<ScriptDetailView>('title')
+  const [titleDraft, setTitleDraft] = useState('')
+  const [outlineDraft, setOutlineDraft] = useState('')
+  const [fullScriptDraft, setFullScriptDraft] = useState('')
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [isEditingOutline, setIsEditingOutline] = useState(false)
+  const [isEditingScript, setIsEditingScript] = useState(false)
+  const [isSavingScriptDetail, setIsSavingScriptDetail] = useState(false)
   const [usageStats, setUsageStats] = useState<UsageStatsRow | null>(null)
 
   const [channelContext, setChannelContext] = useState<ChannelContext>({
     channelProfile: '',
     audience: '',
-    audienceKnowledgeLevel: '',
-    contentPillars: [],
     exampleChannels: [],
     userNotes: '',
     channelStyle: '',
@@ -747,8 +726,6 @@ function Home() {
     tone: '',
     videoLength: '10-12 minutes',
     videoFormat: 'Long-form faceless videos',
-    monetizationGoal: '',
-    channelStage: '',
     channelName: '',
   })
 
@@ -816,14 +793,15 @@ function Home() {
     const mappedProfiles = channelRows.map(toChannelProfile)
     const effectiveProfiles = mappedProfiles.length ? mappedProfiles : [buildPrimaryProfile(normalizedOnboarding)]
     const defaultProfileName = effectiveProfiles.find((profileItem) => profileItem.isDefault)?.channelName || effectiveProfiles[0]?.channelName
-    const mappedScripts = scriptRows.map((script) => toSavedScript(script, defaultProfileName))
+    const profileNamesById = Object.fromEntries(effectiveProfiles.map((profile) => [profile.id, profile.channelName]))
+    const mappedScripts = scriptRows.map((script) => toSavedScript(script, profileNamesById, defaultProfileName))
 
     setAuthUser({ name: effectiveName, email })
     setAuthUserId(userId)
     setOnboarding(normalizedOnboarding)
     setProfiles(effectiveProfiles)
     setScripts(mappedScripts)
-    setSelectedScriptId(mappedScripts[0]?.id || '')
+    setSelectedScriptId('')
     setUsageStats(usageRow)
     setScreen(onboardingRow?.completed_at ? 'app' : 'onboarding')
     setOnboardingStep(onboardingRow?.completed_at ? ONBOARDING_TOTAL_STEPS : 1)
@@ -984,20 +962,20 @@ function Home() {
   }, [toast])
 
   useEffect(() => {
+    if (activeNav === 'scripts') {
+      setSelectedScriptId('')
+      setScriptDetailView('title')
+    }
+  }, [activeNav])
+
+  useEffect(() => {
     setChannelContext((value) => ({
       ...value,
       channelProfile: value.channelProfile || primaryProfile.description,
       niche: primaryProfile.niche,
       audience: value.audience || primaryProfile.audience,
       targetAudience: value.targetAudience || primaryProfile.targetAudience || primaryProfile.audience,
-      audienceKnowledgeLevel: value.audienceKnowledgeLevel || primaryProfile.audienceKnowledgeLevel || onboarding.level || '',
       tone: value.tone || primaryProfile.tone,
-      monetizationGoal: value.monetizationGoal || primaryProfile.monetizationGoal,
-      channelStage: value.channelStage || primaryProfile.channelStage || onboarding.stage,
-      contentPillars:
-        value.contentPillars && value.contentPillars.length
-          ? value.contentPillars
-          : fromCsv(primaryProfile.pillars),
       exampleChannels:
         value.exampleChannels && value.exampleChannels.length
           ? value.exampleChannels
@@ -1010,7 +988,7 @@ function Home() {
       videoFormat: value.videoFormat || primaryProfile.videoFormat || onboarding.contentStyle || 'Long-form faceless videos',
       videoTopicIdea: value.videoTopicIdea || primaryProfile.topicFocus || '',
     }))
-  }, [primaryProfile, onboarding.contentStyle, onboarding.level, onboarding.painPoints, onboarding.primaryGoal, onboarding.stage])
+  }, [primaryProfile, onboarding.contentStyle, onboarding.painPoints, onboarding.primaryGoal])
 
   useEffect(() => {
     if (!authUserId || screen !== 'onboarding' || isCompletingOnboarding) {
@@ -1043,9 +1021,28 @@ function Home() {
   const selectedProfile = primaryProfile
 
   const selectedScript = useMemo(
-    () => scripts.find((item) => item.id === selectedScriptId) || scripts[0],
+    () => scripts.find((item) => item.id === selectedScriptId) || null,
     [scripts, selectedScriptId],
   )
+
+  useEffect(() => {
+    if (!selectedScript) {
+      setTitleDraft('')
+      setOutlineDraft('')
+      setFullScriptDraft('')
+      setIsEditingTitle(false)
+      setIsEditingOutline(false)
+      setIsEditingScript(false)
+      return
+    }
+
+    setTitleDraft(selectedScript.selectedTitle || selectedScript.title)
+    setOutlineDraft(outlineSectionsToEditableText(selectedScript.outlineSections))
+    setFullScriptDraft(selectedScript.fullScriptBody || selectedScript.script)
+    setIsEditingTitle(false)
+    setIsEditingOutline(false)
+    setIsEditingScript(false)
+  }, [selectedScriptId, selectedScript])
   const currentDate = new Date()
   const currentMonth = currentDate.getMonth()
   const currentYear = currentDate.getFullYear()
@@ -1251,7 +1248,8 @@ function Home() {
 
   const refreshScriptsFromSupabase = async (userId: string, preferredScriptId?: string) => {
     const scriptRows = await scriptService.listByUserId(userId)
-    const mappedScripts = scriptRows.map((script) => toSavedScript(script, selectedProfile.channelName))
+    const profileNamesById = Object.fromEntries(profiles.map((profile) => [profile.id, profile.channelName]))
+    const mappedScripts = scriptRows.map((script) => toSavedScript(script, profileNamesById, selectedProfile.channelName))
     setScripts(mappedScripts)
 
     const nextSelectedScriptId =
@@ -1284,57 +1282,62 @@ function Home() {
     const generatedIdea = selectedIdea?.title || selectedIdea?.concept || null
     const generatedOutline = JSON.stringify(finalOutlineSections)
     const channelProfileId = /^[0-9a-f-]{36}$/i.test(selectedProfile.id) ? selectedProfile.id : null
+    const scriptPayload = {
+      user_id: authUserId,
+      channel_profile_id: channelProfileId,
+      title: generatedTitle,
+      selected_title: selectedTitle || generatedTitle,
+      idea: generatedIdea,
+      outline: generatedOutline,
+      full_script: formattedBody,
+      status: 'completed',
+      word_count: wordCount,
+      niche: channelContext.niche,
+      tone: channelContext.tone || primaryProfile.tone,
+      content_pillars: primaryProfile.pillars || null,
+      example_channels: toCsv(channelContext.exampleChannels),
+      topic_focus: channelContext.videoTopicIdea || null,
+      user_notes: channelContext.userNotes || null,
+      video_length: channelContext.videoLength || null,
+      generated_ideas: videoIdeas.length ? JSON.stringify(videoIdeas) : null,
+      script_type: 'youtube' as const,
+    }
 
     try {
       if (autosavedScriptId) {
-        await scriptService.updateScript(autosavedScriptId, authUserId, {
-          channel_profile_id: channelProfileId,
-          title: generatedTitle,
-          selected_title: selectedTitle || generatedTitle,
-          idea: generatedIdea,
-          outline: generatedOutline,
-          full_script: formattedBody,
-          status: 'completed',
-          word_count: wordCount,
-          niche: channelContext.niche,
-          tone: channelContext.tone || primaryProfile.tone,
-          content_pillars: toCsv(channelContext.contentPillars),
-          example_channels: toCsv(channelContext.exampleChannels),
-          topic_focus: channelContext.videoTopicIdea || null,
-          user_notes: channelContext.userNotes || null,
-          video_length: channelContext.videoLength || null,
-          generated_ideas: videoIdeas.length ? JSON.stringify(videoIdeas) : null,
-          script_type: 'youtube',
-        })
-
-        await refreshScriptsFromSupabase(authUserId, autosavedScriptId)
-        const freshUsage = await usageStatsService.markActive(authUserId)
-        setUsageStats(freshUsage)
+        try {
+          await scriptService.updateScript(autosavedScriptId, authUserId, scriptPayload)
+          const mappedScripts = await refreshScriptsFromSupabase(authUserId, autosavedScriptId)
+          if (!mappedScripts.some((script) => script.id === autosavedScriptId)) {
+            throw new Error('Updated script could not be found in scripts library after refresh.')
+          }
+          const freshUsage = await usageStatsService.markActive(authUserId)
+          setUsageStats(freshUsage)
+        } catch (updateError) {
+          console.warn('Update save path failed, inserting a new script row instead.', updateError)
+          const insertedScript = await scriptService.insertScript({
+            ...scriptPayload,
+            favorite: false,
+          })
+          setAutosavedScriptId(insertedScript.id)
+          const mappedScripts = await refreshScriptsFromSupabase(authUserId, insertedScript.id)
+          if (!mappedScripts.some((script) => script.id === insertedScript.id)) {
+            throw new Error('Inserted script could not be found in scripts library after refresh.')
+          }
+          const freshUsage = await usageStatsService.incrementScriptsGenerated(authUserId)
+          setUsageStats(freshUsage)
+        }
       } else {
         const insertedScript = await scriptService.insertScript({
-          user_id: authUserId,
-          channel_profile_id: channelProfileId,
-          title: generatedTitle,
-          selected_title: selectedTitle || generatedTitle,
-          idea: generatedIdea,
-          outline: generatedOutline,
-          full_script: formattedBody,
-          status: 'completed',
-          word_count: wordCount,
-          niche: channelContext.niche,
-          tone: channelContext.tone || primaryProfile.tone,
-          content_pillars: toCsv(channelContext.contentPillars),
-          example_channels: toCsv(channelContext.exampleChannels),
-          topic_focus: channelContext.videoTopicIdea || null,
-          user_notes: channelContext.userNotes || null,
-          video_length: channelContext.videoLength || null,
-          generated_ideas: videoIdeas.length ? JSON.stringify(videoIdeas) : null,
-          script_type: 'youtube',
+          ...scriptPayload,
           favorite: false,
         })
 
         setAutosavedScriptId(insertedScript.id)
-        await refreshScriptsFromSupabase(authUserId, insertedScript.id)
+        const mappedScripts = await refreshScriptsFromSupabase(authUserId, insertedScript.id)
+        if (!mappedScripts.some((script) => script.id === insertedScript.id)) {
+          throw new Error('Inserted script could not be found in scripts library after refresh.')
+        }
         const freshUsage = await usageStatsService.incrementScriptsGenerated(authUserId)
         setUsageStats(freshUsage)
       }
@@ -1461,6 +1464,7 @@ function Home() {
       setOutlineBlocks([])
       setScriptDraft(null)
       setPolishedScriptText('')
+      setAutosavedScriptId(null)
       setWorkflowStep(3)
       openToast('Titles generated.')
     })
@@ -1468,6 +1472,7 @@ function Home() {
 
   const chooseTitleAndBuildOutline = async (title: string) => {
     setSelectedTitle(title)
+    setAutosavedScriptId(null)
     await withGenerationState('Building your retention-focused outline...', () => void chooseTitleAndBuildOutline(title), async () => {
       const idea = selectedIdeaIndex !== null ? videoIdeas[selectedIdeaIndex] : null
       if (!idea) {
@@ -1569,25 +1574,137 @@ function Home() {
     setWorkflowStep(7)
   }
 
-  const downloadPdf = () => {
+  const downloadPdf = async () => {
     if (!scriptDraft) {
-      return
-    }
-
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) {
-      openToast('Pop-up blocked. Allow pop-ups to export PDF.')
       return
     }
 
     const pdfTitle = scriptDraft.script.title || 'Untitled Script'
     const pdfContent = getCurrentScriptText()
-    const pdfHtml = buildScriptPdfHtml(pdfTitle, pdfContent)
-    printWindow.document.open()
-    printWindow.document.write(pdfHtml)
-    printWindow.document.close()
-    printWindow.focus()
+    try {
+      await downloadScriptPdf(pdfTitle, pdfContent)
+      openToast('PDF downloaded.')
+    } catch {
+      openToast('Unable to download PDF.')
+    }
     setWorkflowStep(7)
+  }
+
+  const updateScriptInLibraryState = (scriptId: string, updates: Partial<SavedScript>) => {
+    setScripts((current) =>
+      current.map((script) => (script.id === scriptId ? { ...script, ...updates, updatedAt: new Date().toISOString() } : script)),
+    )
+  }
+
+  const saveEditedScriptTitle = async () => {
+    if (!selectedScript || !authUserId || isSavingScriptDetail) {
+      return
+    }
+
+    const nextTitle = titleDraft.trim()
+    if (!nextTitle) {
+      openToast('Title cannot be empty.')
+      return
+    }
+
+    setIsSavingScriptDetail(true)
+    try {
+      await scriptService.updateScript(selectedScript.id, authUserId, {
+        title: nextTitle,
+        selected_title: nextTitle,
+      })
+      updateScriptInLibraryState(selectedScript.id, { title: nextTitle, selectedTitle: nextTitle })
+      setIsEditingTitle(false)
+      openToast('Title updated.')
+    } catch {
+      openToast('Unable to update script title.')
+    } finally {
+      setIsSavingScriptDetail(false)
+    }
+  }
+
+  const saveEditedScriptOutline = async () => {
+    if (!selectedScript || !authUserId || isSavingScriptDetail) {
+      return
+    }
+
+    const nextOutlineSections = editableTextToOutlineSections(outlineDraft)
+    setIsSavingScriptDetail(true)
+    try {
+      await scriptService.updateScript(selectedScript.id, authUserId, {
+        outline: JSON.stringify(nextOutlineSections),
+      })
+      updateScriptInLibraryState(selectedScript.id, { outlineSections: nextOutlineSections })
+      setIsEditingOutline(false)
+      openToast('Outline updated.')
+    } catch {
+      openToast('Unable to update script outline.')
+    } finally {
+      setIsSavingScriptDetail(false)
+    }
+  }
+
+  const saveEditedFullScript = async () => {
+    if (!selectedScript || !authUserId || isSavingScriptDetail) {
+      return
+    }
+
+    const nextScriptBody = fullScriptDraft.trim()
+    if (!nextScriptBody) {
+      openToast('Script cannot be empty.')
+      return
+    }
+
+    setIsSavingScriptDetail(true)
+    try {
+      await scriptService.updateScript(selectedScript.id, authUserId, {
+        full_script: nextScriptBody,
+        word_count: nextScriptBody.length,
+      })
+      updateScriptInLibraryState(selectedScript.id, { fullScriptBody: nextScriptBody, script: nextScriptBody })
+      setIsEditingScript(false)
+      openToast('Script updated.')
+    } catch {
+      openToast('Unable to update full script.')
+    } finally {
+      setIsSavingScriptDetail(false)
+    }
+  }
+
+  const exportSelectedScriptPdf = async () => {
+    if (!selectedScript) {
+      return
+    }
+
+    const pdfTitle = selectedScript.selectedTitle || selectedScript.title || 'Untitled Script'
+    const pdfContent = selectedScript.fullScriptBody || selectedScript.script || 'No script content yet.'
+    try {
+      await downloadScriptPdf(pdfTitle, pdfContent)
+      openToast('PDF downloaded.')
+    } catch {
+      openToast('Unable to download PDF.')
+    }
+  }
+
+  const deleteSelectedScript = async () => {
+    if (!selectedScript || !authUserId) {
+      return
+    }
+
+    const shouldDelete = window.confirm('Are you sure you want to delete this script')
+    if (!shouldDelete) {
+      return
+    }
+
+    try {
+      await scriptService.deleteScript(selectedScript.id, authUserId)
+      setScripts((current) => current.filter((script) => script.id !== selectedScript.id))
+      setSelectedScriptId('')
+      setScriptDetailView('title')
+      openToast('Script deleted.')
+    } catch {
+      openToast('Unable to delete script.')
+    }
   }
 
   const recentScripts = scripts.slice(0, 5)
@@ -2127,7 +2244,7 @@ function Home() {
 
         <div className="page-body">
           {activeNav === 'dashboard' && (
-            <section className="dashboard-page">
+            <section className="dashboard-page menu-transition-surface">
               <header className="page-header">
                 <h1>Welcome back, {authUser?.name || 'Creator'}</h1>
                 <p>Channel profile summary only.</p>
@@ -2158,7 +2275,7 @@ function Home() {
           )}
 
           {activeNav === 'generate' && (
-            <section className="generate-page">
+            <section className="generate-page menu-transition-surface">
               <header className="page-header">
                 <h1>Scriptr AI Studio</h1>
                 <p>Go from idea to script in six guided steps with real AI outputs.</p>
@@ -2217,50 +2334,6 @@ function Home() {
                           onChange={(event) =>
                             setChannelContext((value) => ({ ...value, videoFormat: event.target.value }))
                           }
-                        />
-                      </label>
-                      <label>
-                        Monetization goal
-                        <input
-                          value={channelContext.monetizationGoal}
-                          onChange={(event) =>
-                            setChannelContext((value) => ({ ...value, monetizationGoal: event.target.value }))
-                          }
-                        />
-                      </label>
-                      <label>
-                        Channel stage
-                        <input
-                          value={channelContext.channelStage}
-                          onChange={(event) =>
-                            setChannelContext((value) => ({ ...value, channelStage: event.target.value }))
-                          }
-                        />
-                      </label>
-                      <label>
-                        Audience knowledge level
-                        <input
-                          value={channelContext.audienceKnowledgeLevel || ''}
-                          onChange={(event) =>
-                            setChannelContext((value) => ({ ...value, audienceKnowledgeLevel: event.target.value }))
-                          }
-                          placeholder="Beginner, intermediate, advanced"
-                        />
-                      </label>
-                      <label>
-                        Content pillars
-                        <input
-                          value={(channelContext.contentPillars || []).join(', ')}
-                          onChange={(event) =>
-                            setChannelContext((value) => ({
-                              ...value,
-                              contentPillars: event.target.value
-                                .split(',')
-                                .map((item) => item.trim())
-                                .filter(Boolean),
-                            }))
-                          }
-                          placeholder="Myths, case studies, analysis"
                         />
                       </label>
                       <label>
@@ -2585,7 +2658,7 @@ function Home() {
           )}
 
           {activeNav === 'scripts' && (
-            <section className="scripts-page">
+            <section className="scripts-page menu-transition-surface">
               <header className="page-header">
                 <h1>Saved Scripts Library</h1>
                 <p>Search, filter, and manage scripts for your channel.</p>
@@ -2606,97 +2679,42 @@ function Home() {
                 </select>
               </div>
 
-              <div className="content-grid two">
-                <section className="panel glass-panel">
+              {!selectedScript ? (
+                <section className="panel glass-panel library-cards-panel inner-menu-surface">
                   <h3>Script Cards</h3>
-                  <div className="cards-list scrollable">
-                    {scripts.map((script) => (
-                      <article
-                        className={`script-card ${selectedScriptId === script.id ? 'active' : ''}`}
-                        key={script.id}
-                        onClick={() => {
-                          setSelectedScriptId(script.id)
-                          setScriptDetailView('title')
-                        }}
-                      >
-                        <h4>{script.title}</h4>
-                        <p>{script.date}</p>
-                        <div className="tag-row">
-                          <span className="tag">{script.profile}</span>
-                          <span className="tag">{script.type}</span>
-                          <span className="tag">{script.status}</span>
-                        </div>
-                        <div className="mini-actions">
-                          <button
-                            className="btn tiny"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              toggleFavoriteScript(script.id)
-                            }}
-                          >
-                            {script.favorite ? 'Unfavorite' : 'Favorite'}
-                          </button>
-                          <button className="btn tiny">Archive</button>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="panel glass-panel">
-                  <h3>Script Detail</h3>
-                  {selectedScript ? (
-                    <>
-                      <h4>{selectedScript.title}</h4>
-                      <div className="action-row wrap detail-switcher">
-                        <button
-                          className={`btn secondary ${scriptDetailView === 'title' ? 'active-filter' : ''}`}
-                          onClick={() => setScriptDetailView('title')}
+                  {scripts.length ? (
+                    <div className="library-card-grid">
+                      {scripts.map((script) => (
+                        <article
+                          className={`script-card ${selectedScriptId === script.id ? 'active' : ''}`}
+                          key={script.id}
+                          onClick={() => {
+                            setSelectedScriptId(script.id)
+                            setScriptDetailView('title')
+                          }}
                         >
-                          Title
-                        </button>
-                        <button
-                          className={`btn secondary ${scriptDetailView === 'outline' ? 'active-filter' : ''}`}
-                          onClick={() => setScriptDetailView('outline')}
-                        >
-                          Outline
-                        </button>
-                        <button
-                          className={`btn secondary ${scriptDetailView === 'full' ? 'active-filter' : ''}`}
-                          onClick={() => setScriptDetailView('full')}
-                        >
-                          Full Script
-                        </button>
-                      </div>
-                      <div className="script-detail-content">
-                        {scriptDetailView === 'title' && <p>{selectedScript.selectedTitle || selectedScript.title}</p>}
-                        {scriptDetailView === 'outline' &&
-                          (selectedScript.outlineSections.length ? (
-                            <div className="outline-list">
-                              {selectedScript.outlineSections.map((outline, index) => (
-                                <article key={`${outline.heading}-${index}`} className="outline-item">
-                                  <h5>{outline.heading}</h5>
-                                  <p>{outline.content}</p>
-                                </article>
-                              ))}
-                            </div>
-                          ) : (
-                            <p>No outline saved for this script yet.</p>
-                          ))}
-                        {scriptDetailView === 'full' && <pre>{selectedScript.fullScriptBody || selectedScript.script}</pre>}
-                      </div>
-                      <div className="tag-row">
-                        <span className="tag">{selectedScript.date}</span>
-                        <span className="tag">{selectedScript.niche}</span>
-                        <span className="tag">{selectedScript.status}</span>
-                      </div>
-                      <div className="action-row wrap">
-                        <button className="btn secondary">Edit title</button>
-                        <button className="btn secondary">Duplicate</button>
-                        <button className="btn secondary">Export</button>
-                        <button className="btn ghost">Delete</button>
-                      </div>
-                    </>
+                          <h4>{script.title}</h4>
+                          <p>{script.date}</p>
+                          <div className="tag-row">
+                            <span className="tag">{script.profile}</span>
+                            <span className="tag">{script.type}</span>
+                            <span className="tag">{script.status}</span>
+                          </div>
+                          <div className="mini-actions">
+                            <button
+                              className="btn tiny"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                toggleFavoriteScript(script.id)
+                              }}
+                            >
+                              {script.favorite ? 'Unfavorite' : 'Favorite'}
+                            </button>
+                            <button className="btn tiny">Archive</button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
                   ) : (
                     <EmptyState
                       title="No scripts yet"
@@ -2706,12 +2724,146 @@ function Home() {
                     />
                   )}
                 </section>
-              </div>
+              ) : (
+                <section className="panel glass-panel script-detail-screen inner-menu-surface">
+                  <div className="script-detail-header">
+                    <button
+                      className="btn secondary"
+                      onClick={() => {
+                        setSelectedScriptId('')
+                        setScriptDetailView('title')
+                      }}
+                    >
+                      Back to Script Cards
+                    </button>
+                    <div className="tag-row">
+                      <span className="tag">{selectedScript.date}</span>
+                      <span className="tag">{selectedScript.niche}</span>
+                      <span className="tag">{selectedScript.status}</span>
+                    </div>
+                    <div className="action-row wrap">
+                      <button className="btn secondary" onClick={exportSelectedScriptPdf}>
+                        Export
+                      </button>
+                      <button className="btn ghost" onClick={() => void deleteSelectedScript()}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  <h3 className="script-detail-title">{selectedScript.title}</h3>
+                  <div className="action-row wrap detail-switcher">
+                    <button
+                      className={`btn secondary ${scriptDetailView === 'title' ? 'active-filter' : ''}`}
+                      onClick={() => setScriptDetailView('title')}
+                    >
+                      Title
+                    </button>
+                    <button
+                      className={`btn secondary ${scriptDetailView === 'outline' ? 'active-filter' : ''}`}
+                      onClick={() => setScriptDetailView('outline')}
+                    >
+                      Outline
+                    </button>
+                    <button
+                      className={`btn secondary ${scriptDetailView === 'full' ? 'active-filter' : ''}`}
+                      onClick={() => setScriptDetailView('full')}
+                    >
+                      Full Script
+                    </button>
+                  </div>
+                  <div className="script-detail-content">
+                    <div key={scriptDetailView} className="script-detail-pane">
+                      {scriptDetailView === 'title' &&
+                        (isEditingTitle ? (
+                          <input value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} maxLength={220} />
+                        ) : (
+                          <p>{selectedScript.selectedTitle || selectedScript.title}</p>
+                        ))}
+                      {scriptDetailView === 'outline' &&
+                        (isEditingOutline ? (
+                          <textarea
+                            value={outlineDraft}
+                            onChange={(event) => setOutlineDraft(event.target.value)}
+                            rows={16}
+                            placeholder="Enter outline sections. Put heading on first line of each section, then content below."
+                          />
+                        ) : selectedScript.outlineSections.length ? (
+                          <div className="outline-list">
+                            {selectedScript.outlineSections.map((outline, index) => (
+                              <article key={`${outline.heading}-${index}`} className="outline-item">
+                                <h5>{outline.heading}</h5>
+                                <p>{outline.content}</p>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p>No outline saved for this script yet.</p>
+                        ))}
+                      {scriptDetailView === 'full' &&
+                        (isEditingScript ? (
+                          <textarea value={fullScriptDraft} onChange={(event) => setFullScriptDraft(event.target.value)} rows={18} />
+                        ) : (
+                          <pre>{selectedScript.fullScriptBody || selectedScript.script}</pre>
+                        ))}
+                    </div>
+                  </div>
+                  <div className="action-row wrap">
+                    {scriptDetailView === 'title' && (
+                      <button
+                        className="btn secondary"
+                        onClick={() => {
+                          if (isEditingTitle) {
+                            void saveEditedScriptTitle()
+                            return
+                          }
+                          setTitleDraft(selectedScript.selectedTitle || selectedScript.title)
+                          setIsEditingTitle(true)
+                        }}
+                        disabled={isSavingScriptDetail}
+                      >
+                        {isSavingScriptDetail && isEditingTitle ? 'Saving...' : isEditingTitle ? 'Save title' : 'Edit title'}
+                      </button>
+                    )}
+                    {scriptDetailView === 'outline' && (
+                      <button
+                        className="btn secondary"
+                        onClick={() => {
+                          if (isEditingOutline) {
+                            void saveEditedScriptOutline()
+                            return
+                          }
+                          setOutlineDraft(outlineSectionsToEditableText(selectedScript.outlineSections))
+                          setIsEditingOutline(true)
+                        }}
+                        disabled={isSavingScriptDetail}
+                      >
+                        {isSavingScriptDetail && isEditingOutline ? 'Saving...' : isEditingOutline ? 'Save outline' : 'Edit outline'}
+                      </button>
+                    )}
+                    {scriptDetailView === 'full' && (
+                      <button
+                        className="btn secondary"
+                        onClick={() => {
+                          if (isEditingScript) {
+                            void saveEditedFullScript()
+                            return
+                          }
+                          setFullScriptDraft(selectedScript.fullScriptBody || selectedScript.script)
+                          setIsEditingScript(true)
+                        }}
+                        disabled={isSavingScriptDetail}
+                      >
+                        {isSavingScriptDetail && isEditingScript ? 'Saving...' : isEditingScript ? 'Save script' : 'Edit script'}
+                      </button>
+                    )}
+                  </div>
+                </section>
+              )}
             </section>
           )}
 
           {activeNav === 'profiles' && (
-            <section className="profiles-page">
+            <section className="profiles-page menu-transition-surface">
               <header className="page-header">
                 <h1>Channel Profile</h1>
                 <p>This workspace uses one channel profile from onboarding.</p>
@@ -2739,7 +2891,7 @@ function Home() {
           )}
 
           {activeNav === 'usage' && (
-            <section className="usage-page">
+            <section className="usage-page menu-transition-surface">
               <header className="page-header">
                 <h1>Analytics & Usage</h1>
                 <p>Track script output, style distribution, and plan utilization.</p>
@@ -2753,11 +2905,6 @@ function Home() {
                 />
                 <StatCard title="Favorite niche" value={favoriteNiche} meta={`${scripts.length} total saved scripts`} />
                 <StatCard title="Most-used tone" value={mostUsedTone} meta="Based on saved script history" />
-                <StatCard
-                  title="Scripts generated"
-                  value={String(usageStats?.scripts_generated ?? 0)}
-                  meta={usageStats?.last_active_at ? `Last active ${new Date(usageStats.last_active_at).toLocaleDateString()}` : 'No activity yet'}
-                />
               </div>
 
               <div className="content-grid two">
@@ -2780,14 +2927,17 @@ function Home() {
                   <h3>Productivity metrics</h3>
                   <p>Average generation time: 2m 14s</p>
                   <p>Outline-to-script conversion: 78%</p>
-                  <p>Most productive day: Wednesday</p>
+                  <p>
+                    Last active:{' '}
+                    {usageStats?.last_active_at ? new Date(usageStats.last_active_at).toLocaleDateString() : 'No activity yet'}
+                  </p>
                 </section>
               </div>
             </section>
           )}
 
           {activeNav === 'billing' && (
-            <section className="billing-page">
+            <section className="billing-page menu-transition-surface">
               <header className="page-header">
                 <h1>Billing & Plans</h1>
                 <p>Choose the plan that fits your content engine and team output goals.</p>
@@ -2827,7 +2977,7 @@ function Home() {
           )}
 
           {activeNav === 'settings' && (
-            <section className="settings-page">
+            <section className="settings-page menu-transition-surface">
               <header className="page-header">
                 <h1>Account Settings</h1>
                 <p>Manage profile information, preferences, defaults, and notifications.</p>
