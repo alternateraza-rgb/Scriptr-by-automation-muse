@@ -33,6 +33,7 @@ export type ChannelProfileRow = {
   id: string
   user_id: string
   channel_name: string
+  profile_source: string | null
   niche: string | null
   audience: string | null
   age_range: string | null
@@ -49,6 +50,13 @@ export type ChannelProfileRow = {
   monetization_goal: string | null
   content_pillars: string | null
   example_channels: string | null
+  youtube_channel_url: string | null
+  youtube_channel_id: string | null
+  subscriber_count: number | null
+  channel_avatar_url: string | null
+  youtube_subscriber_count: number | null
+  youtube_profile_photo_url: string | null
+  youtube_description: string | null
   is_default: boolean | null
   created_at: string
   updated_at: string

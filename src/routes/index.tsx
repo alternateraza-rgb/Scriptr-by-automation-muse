@@ -23,6 +23,11 @@ import { scriptService } from '../services/data/scriptService'
 import { usageStatsService } from '../services/data/usageStatsService'
 import type { ChannelProfileRow, OnboardingResponseRow, ScriptRow, UsageStatsRow } from '../services/data/types'
 import {
+  fetchYouTubeChannelStats,
+  importYouTubeChannel,
+  type ImportedYouTubeChannelStats,
+} from '../services/youtubeChannelService'
+import {
   ArrowRight,
   BarChart3,
   BookOpen,
@@ -67,6 +72,12 @@ type ChannelProfile = {
   frequency: string
   inspirations: string
   brandVoice: string
+  profileSource: 'manual' | 'youtube'
+  youtubeChannelUrl?: string
+  youtubeChannelId?: string
+  youtubeSubscriberCount?: number
+  youtubeProfilePhotoUrl?: string
+  youtubeDescription?: string
   isDefault?: boolean
 }
 
@@ -189,7 +200,7 @@ const PRIMARY_GOALS = [
 
 const INITIAL_SCRIPTS: SavedScript[] = []
 
-const ONBOARDING_TOTAL_STEPS = 10
+const ONBOARDING_TOTAL_STEPS = 11
 
 const WORKFLOW_STEPS: Array<{ id: WorkflowStep; label: string }> = [
   { id: 1, label: 'Channel Context' },
@@ -257,6 +268,10 @@ const fromCsv = (value: string | null | undefined) =>
         .map((item) => item.trim())
         .filter(Boolean)
     : []
+
+const formatSubscriberCount = (value: number) => new Intl.NumberFormat('en-US').format(value)
+const formatCompactCount = (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value)
+const getYouTubeImportButtonLabel = () => 'Add channel with channel URL'
 
 const parseIsoDate = (value: string | undefined) => {
   if (!value) {
@@ -389,28 +404,53 @@ const toSavedScript = (
   })
 }
 
-const toChannelProfile = (row: ChannelProfileRow): ChannelProfile => ({
-  id: row.id,
-  channelName: row.channel_name || 'Untitled Channel',
-  niche: row.niche || 'General',
-  description: `Channel strategy for ${row.channel_name || 'your channel'} focused on ${row.niche || 'General'} content.`,
-  audience: row.audience || 'Audience profile not set yet.',
-  tone: row.tone || 'Conversational',
-  ageRange: row.age_range || undefined,
-  uploadFrequency: row.upload_frequency || undefined,
-  length: row.video_length || '8-12 minutes',
-  videoFormat: row.video_format || undefined,
-  topicFocus: row.topic_focus || undefined,
-  targetAudience: row.target_audience || row.audience || undefined,
-  channelStage: row.channel_stage || undefined,
-  audiencePainPoints: row.audience_pain_points || undefined,
-  userNotes: row.user_notes || undefined,
-  ctaStyle: 'Subscriber CTA',
-  frequency: row.upload_frequency || '1 video per month',
-  inspirations: row.example_channels || 'Add inspiration channels',
-  brandVoice: row.tone || 'Conversational',
-  isDefault: Boolean(row.is_default),
-})
+const toChannelProfile = (row: ChannelProfileRow): ChannelProfile => {
+  const normalizedProfileSource = row.profile_source?.trim().toLowerCase()
+  const hasYouTubeData = Boolean(
+    row.youtube_channel_id ||
+      row.youtube_channel_url ||
+      row.youtube_profile_photo_url ||
+      row.youtube_description ||
+      row.youtube_subscriber_count !== null ||
+      row.subscriber_count !== null,
+  )
+  const profileSource = normalizedProfileSource === 'youtube' || (!normalizedProfileSource && hasYouTubeData)
+    ? 'youtube'
+    : 'manual'
+  const subscriberCount = row.subscriber_count ?? row.youtube_subscriber_count
+  const profilePhotoUrl = row.channel_avatar_url || row.youtube_profile_photo_url
+  return {
+    id: row.id,
+    channelName: row.channel_name || 'Untitled Channel',
+    niche: row.niche || (profileSource === 'youtube' ? 'YouTube Reference' : 'General'),
+    description:
+      profileSource === 'youtube'
+        ? row.youtube_description || `Imported YouTube channel profile for ${row.channel_name || 'this channel'}.`
+        : `Channel strategy for ${row.channel_name || 'your channel'} focused on ${row.niche || 'General'} content.`,
+    audience: row.audience || 'Audience profile not set yet.',
+    tone: row.tone || 'Conversational',
+    ageRange: row.age_range || undefined,
+    uploadFrequency: row.upload_frequency || undefined,
+    length: row.video_length || '8-12 minutes',
+    videoFormat: row.video_format || undefined,
+    topicFocus: row.topic_focus || undefined,
+    targetAudience: row.target_audience || row.audience || undefined,
+    channelStage: row.channel_stage || undefined,
+    audiencePainPoints: row.audience_pain_points || undefined,
+    userNotes: row.user_notes || undefined,
+    ctaStyle: 'Subscriber CTA',
+    frequency: row.upload_frequency || '1 video per month',
+    inspirations: row.example_channels || 'Add inspiration channels',
+    brandVoice: row.tone || 'Conversational',
+    profileSource,
+    youtubeChannelUrl: row.youtube_channel_url || undefined,
+    youtubeChannelId: row.youtube_channel_id || undefined,
+    youtubeSubscriberCount: subscriberCount ?? undefined,
+    youtubeProfilePhotoUrl: profilePhotoUrl || undefined,
+    youtubeDescription: row.youtube_description || undefined,
+    isDefault: Boolean(row.is_default),
+  }
+}
 
 const buildPrimaryProfile = (onboarding: OnboardingState): ChannelProfile => ({
   id: 'cp-primary',
@@ -433,6 +473,7 @@ const buildPrimaryProfile = (onboarding: OnboardingState): ChannelProfile => ({
   frequency: onboarding.uploadFrequency || '1 video per month',
   inspirations: 'Add inspiration channels',
   brandVoice: getPrimaryTone(onboarding),
+  profileSource: 'manual',
   isDefault: true,
 })
 
@@ -489,6 +530,29 @@ function ScriptrLogo({ compact = false }: { compact?: boolean }) {
         </div>
       )}
     </div>
+  )
+}
+
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+      <path
+        fill="#EA4335"
+        d="M9 7.364v3.518h4.892c-.215 1.13-.859 2.088-1.825 2.731l2.95 2.29c1.718-1.581 2.71-3.905 2.71-6.667 0-.644-.058-1.264-.165-1.872H9Z"
+      />
+      <path
+        fill="#34A853"
+        d="M3.181 10.713 2.515 11.223l-2.358 1.837A8.996 8.996 0 0 0 8.999 18c2.43 0 4.47-.801 5.957-2.096l-2.95-2.29c-.8.537-1.825.859-3.007.859-2.347 0-4.338-1.581-5.05-3.76l-.768-.001Z"
+      />
+      <path
+        fill="#4A90E2"
+        d="M.157 4.939A8.996 8.996 0 0 0 .157 13.06l3.024-2.348a5.347 5.347 0 0 1-.281-1.712c0-.595.099-1.173.281-1.712L.157 4.939Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M8.999 3.527c1.289 0 2.438.446 3.347 1.321l2.505-2.505C13.463 1.049 11.429 0 8.999 0A8.996 8.996 0 0 0 .157 4.939L3.181 7.29c.712-2.179 2.703-3.763 5.818-3.763Z"
+      />
+    </svg>
   )
 }
 
@@ -662,6 +726,7 @@ function Home() {
   const [authUser, setAuthUser] = useState<{ name: string; email: string } | null>(null)
   const [authUserId, setAuthUserId] = useState<string | null>(null)
   const [authLoading, setAuthLoading] = useState(false)
+  const [oauthLoading, setOauthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
   const [sessionLoading, setSessionLoading] = useState(true)
   const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false)
@@ -688,6 +753,13 @@ function Home() {
   const [isDeleteScriptDialogOpen, setIsDeleteScriptDialogOpen] = useState(false)
   const [isDeletingSelectedScript, setIsDeletingSelectedScript] = useState(false)
   const [usageStats, setUsageStats] = useState<UsageStatsRow | null>(null)
+  const [youtubeChannelLink, setYoutubeChannelLink] = useState('')
+  const [youtubeImportLoading, setYoutubeImportLoading] = useState(false)
+  const [youtubeImportError, setYoutubeImportError] = useState('')
+  const [isYouTubeStatsOpen, setIsYouTubeStatsOpen] = useState(false)
+  const [youtubeStatsLoading, setYouTubeStatsLoading] = useState(false)
+  const [youtubeStatsError, setYouTubeStatsError] = useState('')
+  const [youtubeStats, setYouTubeStats] = useState<ImportedYouTubeChannelStats | null>(null)
 
   const [channelContext, setChannelContext] = useState<ChannelContext>({
     channelProfile: '',
@@ -741,10 +813,19 @@ function Home() {
     () => profiles.find((profile) => profile.isDefault) || profiles[0] || buildPrimaryProfile(onboarding),
     [onboarding, profiles],
   )
+  const manualProfile = useMemo(
+    () => profiles.find((profile) => profile.profileSource !== 'youtube' && profile.isDefault) || primaryProfile,
+    [primaryProfile, profiles],
+  )
+  const importedYouTubeProfile = useMemo(
+    () => profiles.find((profile) => profile.profileSource === 'youtube'),
+    [profiles],
+  )
 
   const buildDefaultProfileInput = (userId: string, onboardingState: OnboardingState) => ({
     user_id: userId,
     channel_name: onboardingState.channelName || null,
+    profile_source: 'manual' as const,
     niche: getPrimaryNiche(onboardingState),
     audience: onboardingState.audienceDescription || null,
     tone: getPrimaryTone(onboardingState),
@@ -763,19 +844,48 @@ function Home() {
     setScripts(INITIAL_SCRIPTS)
     setSelectedScriptId('')
     setUsageStats(null)
+    setYoutubeChannelLink('')
+    setYoutubeImportError('')
+    setYoutubeImportLoading(false)
+    setIsYouTubeStatsOpen(false)
+    setYouTubeStatsLoading(false)
+    setYouTubeStatsError('')
+    setYouTubeStats(null)
     setIsCompletingOnboarding(false)
     setAutosavedScriptId(null)
     onboardingSyncErrorShownRef.current = false
   }
 
   const hydrateAccountData = async (userId: string, email: string, nameFallback?: string) => {
-    const [profile, onboardingRow, channelRows, scriptRows, usageRow] = await Promise.all([
+    const [profileResult, onboardingResult, channelRowsResult, scriptRowsResult, usageResult] = await Promise.allSettled([
       profileService.ensureProfileByIdentity(userId, email, nameFallback ?? null),
       onboardingService.getByUserId(userId),
       channelProfileService.listByUserId(userId),
       scriptService.listByUserId(userId),
       usageStatsService.ensure(userId),
     ])
+
+    if (profileResult.status === 'rejected') {
+      console.error('[hydrateAccountData] profile hydration failed', profileResult.reason)
+    }
+    if (onboardingResult.status === 'rejected') {
+      console.error('[hydrateAccountData] onboarding hydration failed', onboardingResult.reason)
+    }
+    if (channelRowsResult.status === 'rejected') {
+      console.error('[hydrateAccountData] channel profile hydration failed', channelRowsResult.reason)
+    }
+    if (scriptRowsResult.status === 'rejected') {
+      console.error('[hydrateAccountData] scripts hydration failed', scriptRowsResult.reason)
+    }
+    if (usageResult.status === 'rejected') {
+      console.error('[hydrateAccountData] usage hydration failed', usageResult.reason)
+    }
+
+    const profile = profileResult.status === 'fulfilled' ? profileResult.value : null
+    const onboardingRow = onboardingResult.status === 'fulfilled' ? onboardingResult.value : null
+    const channelRows = channelRowsResult.status === 'fulfilled' ? channelRowsResult.value : []
+    const scriptRows = scriptRowsResult.status === 'fulfilled' ? scriptRowsResult.value : []
+    const usageRow = usageResult.status === 'fulfilled' ? usageResult.value : null
 
     const effectiveName = profile?.full_name || nameFallback || email.split('@')[0] || 'Creator'
     const normalizedOnboarding = toOnboardingState(onboardingRow)
@@ -801,6 +911,23 @@ function Home() {
   }
 
   const getErrorMessage = (error: unknown, fallback: string) => {
+    if (typeof error === 'object' && error !== null) {
+      const supabaseError = error as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown }
+      if (typeof supabaseError.message === 'string' && supabaseError.message.trim()) {
+        const parts = [supabaseError.message.trim()]
+        if (typeof supabaseError.code === 'string' && supabaseError.code.trim()) {
+          parts.push(`code=${supabaseError.code.trim()}`)
+        }
+        if (typeof supabaseError.details === 'string' && supabaseError.details.trim()) {
+          parts.push(supabaseError.details.trim())
+        }
+        if (typeof supabaseError.hint === 'string' && supabaseError.hint.trim()) {
+          parts.push(`hint: ${supabaseError.hint.trim()}`)
+        }
+        return parts.join(' | ')
+      }
+    }
+
     if (error instanceof Error && error.message) {
       return error.message
     }
@@ -817,6 +944,93 @@ function Home() {
     }
 
     return fallback
+  }
+
+  const importYouTubeChannelProfile = async () => {
+    if (!authUserId) {
+      setYoutubeImportError('Please sign in to import a channel.')
+      return
+    }
+
+    if (!youtubeChannelLink.trim()) {
+      setYoutubeImportError('Enter a YouTube channel link first.')
+      return
+    }
+
+    setYoutubeImportLoading(true)
+    setYoutubeImportError('')
+    setYouTubeStatsError('')
+    setYouTubeStats(null)
+
+    try {
+      const channel = await importYouTubeChannel(youtubeChannelLink)
+      const payload = {
+        user_id: authUserId,
+        channel_name: channel.channelName,
+        profile_source: 'youtube' as const,
+        niche: null,
+        audience: null,
+        tone: 'Reference',
+        is_default: false,
+        youtube_channel_url: channel.channelUrl,
+        youtube_channel_id: channel.channelId,
+        subscriber_count: channel.subscriberCount,
+        youtube_subscriber_count: channel.subscriberCount,
+        channel_avatar_url: channel.profilePhotoUrl,
+        youtube_profile_photo_url: channel.profilePhotoUrl,
+        youtube_description: channel.description,
+      }
+
+      const saved = importedYouTubeProfile && /^[0-9a-f-]{36}$/i.test(importedYouTubeProfile.id)
+        ? await channelProfileService.update(importedYouTubeProfile.id, authUserId, payload)
+        : await channelProfileService.create(payload)
+
+      const mapped = toChannelProfile(saved)
+      setProfiles((current) => [mapped, ...current.filter((profile) => profile.profileSource !== 'youtube')])
+      setYoutubeChannelLink(channel.channelUrl)
+      setYouTubeStatsLoading(true)
+      try {
+        const stats = await fetchYouTubeChannelStats(channel.channelId)
+        setYouTubeStats(stats)
+      } catch (error) {
+        const message = getErrorMessage(error, 'Unable to load channel stats.')
+        setYouTubeStatsError(message)
+      } finally {
+        setYouTubeStatsLoading(false)
+      }
+      openToast('YouTube channel imported successfully.')
+    } catch (error) {
+      const message = getErrorMessage(error, 'Unable to import this YouTube channel.')
+      setYoutubeImportError(message)
+    } finally {
+      setYoutubeImportLoading(false)
+    }
+  }
+
+  const openYouTubeStatsModal = async () => {
+    if (!importedYouTubeProfile?.youtubeChannelId) {
+      setYouTubeStatsError('This imported channel is missing a YouTube channel ID.')
+      setIsYouTubeStatsOpen(true)
+      return
+    }
+
+    setIsYouTubeStatsOpen(true)
+    setYouTubeStatsError('')
+    if (youtubeStats?.channelId === importedYouTubeProfile.youtubeChannelId) {
+      return
+    }
+
+    setYouTubeStatsLoading(true)
+    try {
+      const stats = await fetchYouTubeChannelStats(importedYouTubeProfile.youtubeChannelId)
+      setYouTubeStats(stats)
+    } catch (error) {
+      const message = getErrorMessage(error, 'Unable to load channel stats.')
+      setYouTubeStatsError(message)
+      setYouTubeStats(null)
+    } finally {
+      setYouTubeStatsLoading(false)
+    }
   }
 
   const setFallbackAuthenticatedState = (userId: string, email: string, nameFallback?: string) => {
@@ -871,6 +1085,8 @@ function Home() {
         }
 
         const mode = new URLSearchParams(window.location.search).get('type')
+        const oauthErrorDescription = new URLSearchParams(window.location.search).get('error_description')
+        const oauthError = new URLSearchParams(window.location.search).get('error')
         if (mode === 'recovery' && session?.user) {
           setAuthUserId(session.user.id)
           setAuthUser({
@@ -888,6 +1104,17 @@ function Home() {
             (session.user.user_metadata?.full_name as string | undefined) || undefined,
             { notify: true, setInlineError: true },
           )
+        } else if (oauthErrorDescription || oauthError) {
+          clearWorkspaceState()
+          setScreen('signin')
+          const rawMessage = (oauthErrorDescription || oauthError || '').replace(/\+/g, ' ')
+          let friendlyMessage = rawMessage
+          try {
+            friendlyMessage = decodeURIComponent(rawMessage)
+          } catch {
+            friendlyMessage = rawMessage
+          }
+          setAuthError(friendlyMessage || 'Google sign-in failed. Please try again.')
         } else {
           clearWorkspaceState()
           setScreen('landing')
@@ -1007,6 +1234,46 @@ function Home() {
     }
   }, [authUserId, screen, sessionLoading])
 
+  useEffect(() => {
+    if (!importedYouTubeProfile?.youtubeChannelId) {
+      return
+    }
+    if (youtubeStats?.channelId === importedYouTubeProfile.youtubeChannelId) {
+      return
+    }
+    if (youtubeStatsLoading) {
+      return
+    }
+
+    let isActive = true
+    setYouTubeStatsLoading(true)
+    setYouTubeStatsError('')
+
+    void fetchYouTubeChannelStats(importedYouTubeProfile.youtubeChannelId)
+      .then((stats) => {
+        if (!isActive) {
+          return
+        }
+        setYouTubeStats(stats)
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return
+        }
+        setYouTubeStats(null)
+        setYouTubeStatsError(getErrorMessage(error, 'Unable to load channel stats.'))
+      })
+      .finally(() => {
+        if (isActive) {
+          setYouTubeStatsLoading(false)
+        }
+      })
+
+    return () => {
+      isActive = false
+    }
+  }, [importedYouTubeProfile?.youtubeChannelId, youtubeStats?.channelId, youtubeStatsLoading])
+
   const selectedProfile = primaryProfile
 
   const selectedScript = useMemo(
@@ -1122,6 +1389,23 @@ function Home() {
       setAuthError(message)
     } finally {
       setAuthLoading(false)
+    }
+  }
+
+  const onGoogleAuth = async () => {
+    if (authLoading || oauthLoading) {
+      return
+    }
+
+    setOauthLoading(true)
+    setAuthError('')
+
+    try {
+      await authService.signInWithGoogle()
+    } catch (error) {
+      const message = getErrorMessage(error, 'Google sign-in could not be started. Please try again.')
+      setAuthError(message)
+      setOauthLoading(false)
     }
   }
 
@@ -1971,12 +2255,21 @@ function Home() {
                   />
                 </label>
                 {authError && <p className="error-text">{authError}</p>}
-                <button type="submit" className="btn primary" disabled={authLoading}>
+                <button type="submit" className="btn primary" disabled={authLoading || oauthLoading}>
                   {authLoading
                     ? 'Please wait...'
                     : screen === 'signup'
                       ? 'Create account'
                       : 'Sign in'}
+                </button>
+                <div className="auth-divider" aria-hidden="true">
+                  <span>or continue with</span>
+                </div>
+                <button type="button" className="google-auth-btn" onClick={() => void onGoogleAuth()} disabled={authLoading || oauthLoading}>
+                  <span className="google-auth-icon">
+                    <GoogleIcon />
+                  </span>
+                  <span>{oauthLoading ? 'Signing in...' : 'Continue with Google'}</span>
                 </button>
               </form>
             ) : screen === 'forgot' ? (
@@ -2181,7 +2474,27 @@ function Home() {
               />
             )}
 
-            {onboardingStep === 10 && <OnboardingCompletionStep onboarding={onboarding} userName={authUser?.name || 'Creator'} />}
+            {onboardingStep === 10 && (
+              <OnboardingYouTubeImportStep
+                youtubeChannelLink={youtubeChannelLink}
+                youtubeImportLoading={youtubeImportLoading}
+                youtubeImportError={youtubeImportError}
+                importedYouTubeProfile={importedYouTubeProfile}
+                youtubeStats={youtubeStats}
+                youtubeStatsLoading={youtubeStatsLoading}
+                youtubeStatsError={youtubeStatsError}
+                onYoutubeChannelLinkChange={(value) => {
+                  setYoutubeChannelLink(value)
+                  if (youtubeImportError) {
+                    setYoutubeImportError('')
+                  }
+                }}
+                onImport={() => void importYouTubeChannelProfile()}
+                onAddManually={() => void nextOnboarding()}
+              />
+            )}
+
+            {onboardingStep === 11 && <OnboardingCompletionStep onboarding={onboarding} userName={authUser?.name || 'Creator'} />}
           </section>
 
           {onboardingStep > 1 && onboardingStep < ONBOARDING_TOTAL_STEPS && (
@@ -2889,21 +3202,150 @@ function Home() {
             <section className="profiles-page menu-transition-surface">
               <header className="page-header">
                 <h1>Channel Profile</h1>
-                <p>This workspace uses one channel profile from onboarding.</p>
+                <p>Manage your onboarding profile and import a real YouTube channel profile by link.</p>
               </header>
 
-              <article className="panel glass-panel">
-                <h3>{selectedProfile.channelName}</h3>
-                <p>{selectedProfile.description}</p>
-                <div className="tag-row">
-                  <span className="tag">{selectedProfile.niche}</span>
-                  <span className="tag">{selectedProfile.tone}</span>
-                  <span className="tag">{selectedProfile.frequency}</span>
+              <div className="profiles-grid">
+                <div className="profiles-sidebar-stack">
+                  <section className="panel glass-panel channel-profile-card channel-profile-import-panel">
+                    <div className="channel-profile-card-head">
+                      <p className="eyebrow">YouTube channel profile</p>
+                      <h3>Add channel with channel URL</h3>
+                    </div>
+                    <p>
+                      {importedYouTubeProfile
+                        ? 'This channel profile is used as your YouTube reference. Replace it anytime with another channel link.'
+                        : 'Paste your YouTube channel URL to pull channel name, subscriber count, profile photo, and description.'}
+                    </p>
+                    <form
+                      className="youtube-import-form"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        void importYouTubeChannelProfile()
+                      }}
+                    >
+                      <input
+                        type="url"
+                        value={youtubeChannelLink}
+                        onChange={(event) => {
+                          setYoutubeChannelLink(event.target.value)
+                          if (youtubeImportError) {
+                            setYoutubeImportError('')
+                          }
+                        }}
+                        placeholder="https://www.youtube.com/@yourchannel"
+                      />
+                      <div className="youtube-import-actions">
+                        <button className="btn secondary" type="submit" disabled={youtubeImportLoading}>
+                          {youtubeImportLoading ? 'Importing...' : getYouTubeImportButtonLabel()}
+                        </button>
+                      </div>
+                    </form>
+                    {youtubeImportError && <p className="error-message">{youtubeImportError}</p>}
+                  </section>
+
+                  <article className="panel glass-panel channel-profile-card channel-profile-manual-panel">
+                    <div className="channel-profile-card-head">
+                      <p className="eyebrow">Manual onboarding profile</p>
+                      <h3>Onboarding profile snapshot</h3>
+                    </div>
+                    <div className="manual-profile-preview manual-profile-preview-compact">
+                      <h3>{manualProfile.channelName}</h3>
+                      <p className="manual-profile-description">{manualProfile.description}</p>
+                      <div className="tag-row">
+                        <span className="tag">{manualProfile.niche}</span>
+                        <span className="tag">{manualProfile.tone}</span>
+                        <span className="tag">{manualProfile.frequency}</span>
+                      </div>
+                      <p className="manual-profile-audience">
+                        <strong>Audience:</strong> {manualProfile.audience}
+                      </p>
+                    </div>
+                  </article>
                 </div>
-                <p>
-                  <strong>Audience:</strong> {selectedProfile.audience}
-                </p>
-              </article>
+
+                <section className="panel glass-panel channel-profile-card">
+                  <div className="channel-profile-card-head">
+                    <p className="eyebrow">Imported YouTube profile</p>
+                    <h3>Channel imported from URL</h3>
+                  </div>
+                  {importedYouTubeProfile ? (
+                    <article
+                      className="youtube-channel-profile-card"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`View stats for ${importedYouTubeProfile.channelName}`}
+                      onClick={() => void openYouTubeStatsModal()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          void openYouTubeStatsModal()
+                        }
+                      }}
+                    >
+                      <div className="youtube-channel-profile-head">
+                        <div className="youtube-channel-profile-identity">
+                          {importedYouTubeProfile.youtubeProfilePhotoUrl ? (
+                            <img
+                              src={importedYouTubeProfile.youtubeProfilePhotoUrl}
+                              alt={`${importedYouTubeProfile.channelName} profile`}
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="youtube-channel-avatar-fallback" aria-hidden="true">
+                              {importedYouTubeProfile.channelName.charAt(0)}
+                            </div>
+                          )}
+                          <div>
+                            <h4>{importedYouTubeProfile.channelName}</h4>
+                            <p className="youtube-channel-meta">
+                              <strong>{formatSubscriberCount(importedYouTubeProfile.youtubeSubscriberCount || 0)}</strong> subscribers
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          className="btn ghost"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setYoutubeImportError('')
+                            setYoutubeChannelLink(importedYouTubeProfile.youtubeChannelUrl || '')
+                          }}
+                        >
+                          Use current URL
+                        </button>
+                      </div>
+                      <div className="youtube-channel-description">
+                        <p>{importedYouTubeProfile.youtubeDescription || 'No channel description available.'}</p>
+                      </div>
+                      {youtubeStatsLoading ? (
+                        <p>Loading channel stats...</p>
+                      ) : youtubeStatsError ? (
+                        <p className="error-message">{youtubeStatsError}</p>
+                      ) : youtubeStats && youtubeStats.channelId === importedYouTubeProfile.youtubeChannelId ? (
+                        <YouTubeStatsGrid stats={youtubeStats} compact />
+                      ) : (
+                        <p>Click this card to view full channel stats.</p>
+                      )}
+                      <p className="youtube-channel-stats-hint">Click this card to view full channel stats</p>
+                      {importedYouTubeProfile?.youtubeChannelUrl && (
+                        <a
+                          className="inline-link"
+                          href={importedYouTubeProfile.youtubeChannelUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          Open channel on YouTube
+                        </a>
+                      )}
+                    </article>
+                  ) : (
+                    <div className="empty-state channel-profile-empty-state">
+                      <p>No YouTube channel imported yet.</p>
+                    </div>
+                  )}
+                </section>
+              </div>
             </section>
           )}
 
@@ -3112,6 +3554,69 @@ function Home() {
         </div>
       )}
 
+      {isYouTubeStatsOpen && importedYouTubeProfile && (
+        <div
+          className="youtube-stats-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (youtubeStatsLoading) {
+              return
+            }
+            setIsYouTubeStatsOpen(false)
+          }}
+        >
+          <section
+            className="youtube-stats-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="youtube-stats-title"
+            aria-describedby="youtube-stats-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="youtube-stats-header">
+              <div className="youtube-stats-channel">
+                {importedYouTubeProfile.youtubeProfilePhotoUrl ? (
+                  <img
+                    src={importedYouTubeProfile.youtubeProfilePhotoUrl}
+                    alt={`${importedYouTubeProfile.channelName} profile`}
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="youtube-channel-avatar-fallback" aria-hidden="true">
+                    {importedYouTubeProfile.channelName.charAt(0)}
+                  </div>
+                )}
+                <div>
+                  <p className="eyebrow">YouTube Channel Stats</p>
+                  <h2 id="youtube-stats-title">{importedYouTubeProfile.channelName}</h2>
+                  <p id="youtube-stats-description">Performance snapshot based on latest YouTube data.</p>
+                </div>
+              </div>
+              <button className="btn ghost" onClick={() => setIsYouTubeStatsOpen(false)} aria-label="Close channel stats">
+                <X className="icon-inline" />
+                Close
+              </button>
+            </div>
+
+            {youtubeStatsLoading ? (
+              <div className="youtube-stats-empty-state">
+                <p>Loading channel stats...</p>
+              </div>
+            ) : youtubeStatsError ? (
+              <div className="youtube-stats-empty-state">
+                <p>{youtubeStatsError}</p>
+              </div>
+            ) : youtubeStats ? (
+              <YouTubeStatsGrid stats={youtubeStats} />
+            ) : (
+              <div className="youtube-stats-empty-state">
+                <p>No stats data is available for this channel.</p>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
       {toast && (
         <aside className="toast">
           <CircleUserRound className="icon-inline" />
@@ -3315,6 +3820,121 @@ function OnboardingAudienceStep({
           />
         </label>
       </div>
+    </div>
+  )
+}
+
+function OnboardingYouTubeImportStep({
+  youtubeChannelLink,
+  youtubeImportLoading,
+  youtubeImportError,
+  importedYouTubeProfile,
+  youtubeStats,
+  youtubeStatsLoading,
+  youtubeStatsError,
+  onYoutubeChannelLinkChange,
+  onImport,
+  onAddManually,
+}: {
+  youtubeChannelLink: string
+  youtubeImportLoading: boolean
+  youtubeImportError: string
+  importedYouTubeProfile?: ChannelProfile
+  youtubeStats: ImportedYouTubeChannelStats | null
+  youtubeStatsLoading: boolean
+  youtubeStatsError: string
+  onYoutubeChannelLinkChange: (value: string) => void
+  onImport: () => void
+  onAddManually: () => void
+}) {
+  const hasMatchingStats = Boolean(youtubeStats && youtubeStats.channelId === importedYouTubeProfile?.youtubeChannelId)
+
+  return (
+    <div className="onboarding-step fade-step">
+      <h1>Add channel with channel URL (optional)</h1>
+      <p>Import your YouTube channel now to sync details automatically, or use Add manually to continue the original manual flow.</p>
+      <div className="youtube-import-form">
+        <input
+          type="url"
+          value={youtubeChannelLink}
+          onChange={(event) => onYoutubeChannelLinkChange(event.target.value)}
+          placeholder="https://www.youtube.com/@yourchannel"
+        />
+        <div className="youtube-import-actions">
+          <button className="btn secondary" onClick={onImport} disabled={youtubeImportLoading}>
+            {youtubeImportLoading ? 'Importing...' : getYouTubeImportButtonLabel()}
+          </button>
+          <button className="btn ghost" onClick={onAddManually} disabled={youtubeImportLoading}>
+            Add manually
+          </button>
+        </div>
+      </div>
+      {youtubeImportError && <p className="error-message">{youtubeImportError}</p>}
+      {importedYouTubeProfile && (
+        <article className="onboarding-youtube-preview glass-panel">
+          <div className="onboarding-youtube-preview-head">
+            {importedYouTubeProfile.youtubeProfilePhotoUrl ? (
+              <img
+                src={importedYouTubeProfile.youtubeProfilePhotoUrl}
+                alt={`${importedYouTubeProfile.channelName} profile`}
+                loading="lazy"
+              />
+            ) : (
+              <div className="youtube-channel-avatar-fallback" aria-hidden="true">
+                {importedYouTubeProfile.channelName.charAt(0)}
+              </div>
+            )}
+            <div>
+              <h4>{importedYouTubeProfile.channelName}</h4>
+              <p>
+                <strong>{formatSubscriberCount(importedYouTubeProfile.youtubeSubscriberCount || 0)}</strong> subscribers
+              </p>
+            </div>
+          </div>
+          <p>{importedYouTubeProfile.youtubeDescription || 'No channel description available.'}</p>
+          {youtubeStatsLoading ? (
+            <p>Loading channel stats...</p>
+          ) : hasMatchingStats && youtubeStats ? (
+            <YouTubeStatsGrid stats={youtubeStats} compact />
+          ) : youtubeStatsError ? (
+            <p className="error-message">{youtubeStatsError}</p>
+          ) : (
+            <p>Import to preview full channel stats.</p>
+          )}
+          {importedYouTubeProfile.youtubeChannelUrl && (
+            <a className="inline-link" href={importedYouTubeProfile.youtubeChannelUrl} target="_blank" rel="noreferrer">
+              Open channel on YouTube
+            </a>
+          )}
+        </article>
+      )}
+    </div>
+  )
+}
+
+function YouTubeStatsGrid({ stats, compact = false }: { stats: ImportedYouTubeChannelStats; compact?: boolean }) {
+  return (
+    <div className={`youtube-stats-grid ${compact ? 'youtube-stats-grid-compact' : ''}`}>
+      <article className="youtube-stat-card">
+        <h4>Total subscribers</h4>
+        <p>{formatCompactCount(stats.totalSubscribers)}</p>
+      </article>
+      <article className="youtube-stat-card">
+        <h4>Total channel views</h4>
+        <p>{formatCompactCount(stats.totalChannelViews)}</p>
+      </article>
+      <article className="youtube-stat-card">
+        <h4>Total videos</h4>
+        <p>{formatCompactCount(stats.totalVideos)}</p>
+      </article>
+      <article className="youtube-stat-card">
+        <h4>Uploads per month</h4>
+        <p>{stats.uploadsPerMonth.toFixed(1)}</p>
+      </article>
+      <article className="youtube-stat-card">
+        <h4>Average video length</h4>
+        <p>{stats.averageVideoLengthLabel}</p>
+      </article>
     </div>
   )
 }

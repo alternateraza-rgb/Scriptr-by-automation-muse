@@ -4,9 +4,17 @@ import type { ChannelProfileRow } from './types'
 export type ChannelProfileInput = {
   user_id: string
   channel_name?: string | null
+  profile_source?: 'manual' | 'youtube' | null
   niche: string | null
   audience: string | null
   tone: string | null
+  youtube_channel_url?: string | null
+  youtube_channel_id?: string | null
+  subscriber_count?: number | null
+  youtube_subscriber_count?: number | null
+  channel_avatar_url?: string | null
+  youtube_profile_photo_url?: string | null
+  youtube_description?: string | null
   monetization_goal?: string | null
   is_default?: boolean
 }
@@ -14,9 +22,17 @@ export type ChannelProfileInput = {
 const PROFILE_WRITABLE_FIELDS = [
   'user_id',
   'channel_name',
+  'profile_source',
   'niche',
   'audience',
   'tone',
+  'youtube_channel_url',
+  'youtube_channel_id',
+  'subscriber_count',
+  'youtube_subscriber_count',
+  'channel_avatar_url',
+  'youtube_profile_photo_url',
+  'youtube_description',
   'is_default',
 ] as const
 
