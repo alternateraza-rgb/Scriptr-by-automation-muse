@@ -4,7 +4,7 @@ import type { OnboardingResponseRow } from './types'
 export type OnboardingUpsertInput = {
   user_id: string
   niche: string | null
-  income_goal: string | null
+  income_goal?: string | null
   channel_stage: string | null
   content_style: string | null
   audience: string | null
@@ -12,7 +12,7 @@ export type OnboardingUpsertInput = {
   upload_frequency: string | null
   tone: string | null
   age_range: string | null
-  level: string | null
+  level?: string | null
   pain_points: string | null
   primary_goal: string | null
   custom_niche: string | null

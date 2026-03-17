@@ -61,13 +61,10 @@ type ChannelProfile = {
   topicFocus?: string
   targetAudience?: string
   channelStage?: string
-  audienceKnowledgeLevel?: string
   audiencePainPoints?: string
   userNotes?: string
   ctaStyle: string
   frequency: string
-  monetizationGoal: string
-  pillars: string
   inspirations: string
   brandVoice: string
   isDefault?: boolean
@@ -98,14 +95,12 @@ type OnboardingState = {
   niche: string
   customNiche: string
   stage: string
-  incomeGoal: string
   contentStyle: string
   uploadFrequency: string
   tone: string
   customTone: string
   audienceDescription: string
   ageRange: string
-  level: string
   painPoints: string
   primaryGoal: string
 }
@@ -115,14 +110,12 @@ const ONBOARDING_DEFAULTS: OnboardingState = {
   niche: '',
   customNiche: '',
   stage: '',
-  incomeGoal: '',
   contentStyle: '',
   uploadFrequency: '',
   tone: '',
   customTone: '',
   audienceDescription: '',
   ageRange: '',
-  level: '',
   painPoints: '',
   primaryGoal: '',
 }
@@ -153,15 +146,6 @@ const STAGE_OPTIONS = [
   'Making some income',
   'Trying to scale',
   'Agency / managing multiple channels',
-]
-
-const INCOME_OPTIONS = [
-  'First $100/month',
-  '$1k/month',
-  '$5k/month',
-  '$10k/month',
-  '$25k+/month',
-  'Build a real media business',
 ]
 
 const CONTENT_OPTIONS = [
@@ -205,7 +189,7 @@ const PRIMARY_GOALS = [
 
 const INITIAL_SCRIPTS: SavedScript[] = []
 
-const ONBOARDING_TOTAL_STEPS = 11
+const ONBOARDING_TOTAL_STEPS = 10
 
 const WORKFLOW_STEPS: Array<{ id: WorkflowStep; label: string }> = [
   { id: 1, label: 'Channel Context' },
@@ -327,14 +311,12 @@ const toOnboardingState = (row: OnboardingResponseRow | null): OnboardingState =
     niche: row.niche || '',
     customNiche: row.custom_niche || '',
     stage: row.channel_stage || '',
-    incomeGoal: row.income_goal || '',
     contentStyle: row.content_style || '',
     uploadFrequency: row.upload_frequency || '',
     tone: row.tone || '',
     customTone: row.custom_tone || '',
     audienceDescription: row.audience || '',
     ageRange: row.age_range || '',
-    level: row.level || '',
     painPoints: row.pain_points || '',
     primaryGoal: row.primary_goal || '',
   }
@@ -421,13 +403,10 @@ const toChannelProfile = (row: ChannelProfileRow): ChannelProfile => ({
   topicFocus: row.topic_focus || undefined,
   targetAudience: row.target_audience || row.audience || undefined,
   channelStage: row.channel_stage || undefined,
-  audienceKnowledgeLevel: row.audience_knowledge_level || undefined,
   audiencePainPoints: row.audience_pain_points || undefined,
   userNotes: row.user_notes || undefined,
   ctaStyle: 'Subscriber CTA',
   frequency: row.upload_frequency || '1 video per month',
-  monetizationGoal: row.monetization_goal || 'Build sustainable channel revenue',
-  pillars: row.content_pillars || 'Educational explainers',
   inspirations: row.example_channels || 'Add inspiration channels',
   brandVoice: row.tone || 'Conversational',
   isDefault: Boolean(row.is_default),
@@ -448,13 +427,10 @@ const buildPrimaryProfile = (onboarding: OnboardingState): ChannelProfile => ({
   videoFormat: onboarding.contentStyle || 'Long-form faceless videos',
   targetAudience: onboarding.audienceDescription || undefined,
   channelStage: onboarding.stage || undefined,
-  audienceKnowledgeLevel: onboarding.level || undefined,
   audiencePainPoints: onboarding.painPoints || undefined,
   userNotes: onboarding.primaryGoal || undefined,
   ctaStyle: onboarding.primaryGoal || 'Subscriber CTA',
   frequency: onboarding.uploadFrequency || '1 video per month',
-  monetizationGoal: onboarding.incomeGoal || 'Build sustainable channel revenue',
-  pillars: onboarding.contentStyle || 'Educational explainers',
   inspirations: 'Add inspiration channels',
   brandVoice: getPrimaryTone(onboarding),
   isDefault: true,
@@ -464,7 +440,6 @@ const toOnboardingUpsertPayload = (userId: string, onboarding: OnboardingState, 
   const payload = {
     user_id: userId,
     niche: onboarding.niche || null,
-    income_goal: onboarding.incomeGoal || null,
     channel_stage: onboarding.stage || null,
     content_style: onboarding.contentStyle || null,
     audience: onboarding.audienceDescription || null,
@@ -472,7 +447,6 @@ const toOnboardingUpsertPayload = (userId: string, onboarding: OnboardingState, 
     upload_frequency: onboarding.uploadFrequency || null,
     tone: onboarding.tone || null,
     age_range: onboarding.ageRange || null,
-    level: onboarding.level || null,
     pain_points: onboarding.painPoints || null,
     primary_goal: onboarding.primaryGoal || null,
     custom_niche: onboarding.customNiche || null,
@@ -774,7 +748,6 @@ function Home() {
     niche: getPrimaryNiche(onboardingState),
     audience: onboardingState.audienceDescription || null,
     tone: getPrimaryTone(onboardingState),
-    monetization_goal: onboardingState.incomeGoal || null,
   })
 
   const saveOnboardingSnapshot = async (userId: string, onboardingState: OnboardingState, completedAt?: string | null) => {
@@ -998,7 +971,7 @@ function Home() {
           : fromCsv(primaryProfile.inspirations),
       userNotes: value.userNotes || primaryProfile.userNotes || onboarding.primaryGoal || '',
       audiencePainPoints: value.audiencePainPoints || primaryProfile.audiencePainPoints || onboarding.painPoints || '',
-      channelStyle: value.channelStyle || value.videoFormat || primaryProfile.videoFormat || primaryProfile.pillars,
+      channelStyle: value.channelStyle || value.videoFormat || primaryProfile.videoFormat || onboarding.contentStyle,
       channelName: value.channelName || primaryProfile.channelName,
       videoLength: value.videoLength || primaryProfile.length || '8-12 minutes',
       videoFormat: value.videoFormat || primaryProfile.videoFormat || onboarding.contentStyle || 'Long-form faceless videos',
@@ -1312,7 +1285,6 @@ function Home() {
       word_count: wordCount,
       niche: channelContext.niche,
       tone: channelContext.tone || primaryProfile.tone,
-      content_pillars: primaryProfile.pillars || null,
       example_channels: toCsv(channelContext.exampleChannels),
       topic_focus: channelContext.videoTopicIdea || null,
       user_notes: channelContext.userNotes || null,
@@ -2164,16 +2136,6 @@ function Home() {
 
             {onboardingStep === 5 && (
               <OnboardingChoiceStep
-                title="What are your income goals with YouTube?"
-                subtitle="Set your target so generation outputs align with your monetization path."
-                options={INCOME_OPTIONS}
-                value={onboarding.incomeGoal}
-                onSelect={(value) => persistOnboarding({ ...onboarding, incomeGoal: value })}
-              />
-            )}
-
-            {onboardingStep === 6 && (
-              <OnboardingChoiceStep
                 title="What type of videos do you want to create?"
                 subtitle="Choose the format mix Scriptr should optimize for first."
                 options={CONTENT_OPTIONS}
@@ -2182,7 +2144,7 @@ function Home() {
               />
             )}
 
-            {onboardingStep === 7 && (
+            {onboardingStep === 6 && (
               <OnboardingChoiceStep
                 title="How many videos do you want to post per month?"
                 subtitle="Select your monthly posting cadence."
@@ -2192,7 +2154,7 @@ function Home() {
               />
             )}
 
-            {onboardingStep === 8 && (
+            {onboardingStep === 7 && (
               <OnboardingChoiceStep
                 title="What tone should your scripts have?"
                 subtitle="Choose your default brand voice for generated scripts."
@@ -2205,11 +2167,11 @@ function Home() {
               />
             )}
 
-            {onboardingStep === 9 && (
+            {onboardingStep === 8 && (
               <OnboardingAudienceStep onboarding={onboarding} onChange={(value) => persistOnboarding(value)} />
             )}
 
-            {onboardingStep === 10 && (
+            {onboardingStep === 9 && (
               <OnboardingChoiceStep
                 title="What do you want Scriptr to help you do first?"
                 subtitle="Your first dashboard actions will be personalized based on this goal."
@@ -2219,7 +2181,7 @@ function Home() {
               />
             )}
 
-            {onboardingStep === 11 && <OnboardingCompletionStep onboarding={onboarding} userName={authUser?.name || 'Creator'} />}
+            {onboardingStep === 10 && <OnboardingCompletionStep onboarding={onboarding} userName={authUser?.name || 'Creator'} />}
           </section>
 
           {onboardingStep > 1 && onboardingStep < ONBOARDING_TOTAL_STEPS && (
@@ -2315,9 +2277,6 @@ function Home() {
                 </div>
                 <p>
                   <strong>Audience:</strong> {selectedProfile.audience}
-                </p>
-                <p>
-                  <strong>Monetization Goal:</strong> {selectedProfile.monetizationGoal}
                 </p>
                 <button className="btn primary" onClick={() => setActiveNav('generate')}>
                   Open Generate Journey
@@ -2944,12 +2903,6 @@ function Home() {
                 <p>
                   <strong>Audience:</strong> {selectedProfile.audience}
                 </p>
-                <p>
-                  <strong>Monetization:</strong> {selectedProfile.monetizationGoal}
-                </p>
-                <p>
-                  <strong>Content style:</strong> {selectedProfile.pillars}
-                </p>
               </article>
             </section>
           )}
@@ -3354,18 +3307,6 @@ function OnboardingAudienceStep({
           />
         </label>
         <label>
-          Audience level
-          <select
-            value={onboarding.level}
-            onChange={(event) => onChange({ ...onboarding, level: event.target.value })}
-          >
-            <option value="">Select level</option>
-            <option value="Beginner">Beginner</option>
-            <option value="Intermediate">Intermediate</option>
-            <option value="Advanced">Advanced</option>
-          </select>
-        </label>
-        <label>
           Pain points / aspirations
           <textarea
             value={onboarding.painPoints}
@@ -3399,10 +3340,6 @@ function OnboardingCompletionStep({ onboarding, userName }: { onboarding: Onboar
         <article className="glass-panel">
           <h4>Videos Per Month</h4>
           <p>{onboarding.uploadFrequency || 'Not set'}</p>
-        </article>
-        <article className="glass-panel">
-          <h4>Income Goal</h4>
-          <p>{onboarding.incomeGoal || 'Not set'}</p>
         </article>
         <article className="glass-panel">
           <h4>Content Style</h4>

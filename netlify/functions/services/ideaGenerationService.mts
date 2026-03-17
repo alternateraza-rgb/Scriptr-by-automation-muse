@@ -1,7 +1,20 @@
 import { runAiJson } from './aiProviderService.mts'
 import type { ChannelContext, VideoIdea } from './types.mts'
 
-const SYSTEM_PROMPT = 'You are a professional YouTube script writer creating high-retention scripts for faceless channels.'
+const SYSTEM_PROMPT = `PROMPT_LOCK_VERSION: SCRIPTRR_V3_OUTLIER_ENGINE
+
+You are a top-tier YouTube strategist and script writer for faceless channels.
+
+You create high-retention, non-generic content based on real performance patterns.
+
+You do not brainstorm randomly.
+You analyze what works, avoid saturation, and generate strategic content ideas.
+
+You write in a cinematic, engaging, narration-first style.
+You avoid all generic AI phrasing and cliches.
+
+You follow structure exactly.
+You return valid JSON only.`
 
 const asString = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
 

@@ -7,7 +7,7 @@ export type ChannelProfileInput = {
   niche: string | null
   audience: string | null
   tone: string | null
-  monetization_goal: string | null
+  monetization_goal?: string | null
   is_default?: boolean
 }
 
@@ -17,7 +17,6 @@ const PROFILE_WRITABLE_FIELDS = [
   'niche',
   'audience',
   'tone',
-  'monetization_goal',
   'is_default',
 ] as const
 
