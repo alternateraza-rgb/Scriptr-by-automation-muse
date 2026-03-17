@@ -3042,12 +3042,6 @@ export function Home() {
               <div className="library-toolbar panel glass-panel">
                 <input placeholder="Search scripts" />
                 <select>
-                  <option>All niches</option>
-                  <option>AI tools</option>
-                  <option>Finance</option>
-                  <option>Luxury</option>
-                </select>
-                <select>
                   <option>Sort: Recent</option>
                   <option>Sort: Favorites</option>
                   <option>Sort: Status</option>
@@ -3304,8 +3298,6 @@ export function Home() {
                       <p className="manual-profile-description">{manualProfile.description}</p>
                       <div className="tag-row">
                         <span className="tag">{manualProfile.niche}</span>
-                        <span className="tag">{manualProfile.tone}</span>
-                        <span className="tag">{manualProfile.frequency}</span>
                       </div>
                       <p className="manual-profile-audience">
                         <strong>Audience:</strong> {manualProfile.audience}
