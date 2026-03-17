@@ -123,6 +123,12 @@ label {
   border-color: #343434;
 }
 
+.btn.danger {
+  background: linear-gradient(120deg, #9e0f1d, #e11d2e);
+  border-color: #b91c2d;
+  color: #fff;
+}
+
 .btn.large {
   padding: 0.85rem 1.35rem;
 }
@@ -1029,12 +1035,69 @@ label {
   gap: 0.55rem;
 }
 
+.skeleton-stack.premium-loading {
+  gap: 0.8rem;
+}
+
+.loading-primary {
+  color: #f3f3f3;
+  font-weight: 700;
+}
+
+.loading-secondary {
+  color: #bcbcbc;
+  font-size: 0.9rem;
+}
+
 .skeleton {
   height: 78px;
   border-radius: 12px;
   background: linear-gradient(90deg, #171717, #242424, #171717);
   background-size: 200% 100%;
   animation: shimmer 1.35s infinite linear;
+}
+
+.premium-skeleton {
+  height: 150px;
+  border: 1px solid #2d2d2d;
+  background: linear-gradient(105deg, rgba(255, 51, 71, 0.12), rgba(30, 30, 30, 0.9), rgba(255, 51, 71, 0.08));
+}
+
+.idea-card-footer {
+  margin-top: 0.45rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.outlier-bubble {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.22rem 0.62rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 1px solid #3f3f3f;
+  background: #181818;
+  color: #f2f2f2;
+}
+
+.outlier-bubble.status-low {
+  border-color: #575757;
+  color: #d6d6d6;
+}
+
+.outlier-bubble.status-medium {
+  border-color: #9a4d0f;
+  color: #ffc88e;
+}
+
+.outlier-bubble.status-high {
+  border-color: #0d7a56;
+  color: #7af0c4;
 }
 
 @keyframes shimmer {
@@ -1234,6 +1297,43 @@ label {
   gap: 0.4rem;
   box-shadow: var(--shadow);
   z-index: 60;
+}
+
+.confirm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  z-index: 70;
+}
+
+.confirm-dialog {
+  width: min(460px, 100%);
+  padding: 1.15rem;
+  display: grid;
+  gap: 0.75rem;
+  border-radius: 16px;
+}
+
+.confirm-dialog h3 {
+  margin: 0;
+}
+
+.confirm-dialog p {
+  color: #dfdfdf;
+}
+
+.confirm-dialog strong {
+  color: #fff;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
 }
 
 .mobile-bottom-nav {

@@ -5,6 +5,8 @@ export type ChannelContext = {
   userNotes?: string
   channelStyle?: string
   audiencePainPoints?: string
+  monetizationGoal?: string
+  channelStage?: string
   niche: string
   videoTopicIdea: string
   targetAudience: string
@@ -19,7 +21,8 @@ export type VideoIdea = {
   concept: string
   why_it_works: string
   hook_angle: string
-  click_score: 'high' | 'medium'
+  click_score: 'low' | 'medium' | 'high'
+  outlierStatus?: 'Low' | 'Medium' | 'High'
 }
 
 export type TitlePayload = {
