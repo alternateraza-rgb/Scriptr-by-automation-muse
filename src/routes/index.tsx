@@ -423,7 +423,7 @@ const toChannelProfile = (row: ChannelProfileRow): ChannelProfile => {
   return {
     id: row.id,
     channelName: row.channel_name || 'Untitled Channel',
-    niche: row.niche || (profileSource === 'youtube' ? 'YouTube Reference' : 'General'),
+    niche: row.niche || 'General',
     description:
       profileSource === 'youtube'
         ? row.youtube_description || `Imported YouTube channel profile for ${row.channel_name || 'this channel'}.`
@@ -773,6 +773,7 @@ export function Home() {
   const [isDeletingSelectedScript, setIsDeletingSelectedScript] = useState(false)
   const [usageStats, setUsageStats] = useState<UsageStatsRow | null>(null)
   const [youtubeChannelLink, setYoutubeChannelLink] = useState('')
+  const [youtubeChannelNiche, setYoutubeChannelNiche] = useState('')
   const [youtubeImportLoading, setYoutubeImportLoading] = useState(false)
   const [youtubeImportError, setYoutubeImportError] = useState('')
   const [isYouTubeStatsOpen, setIsYouTubeStatsOpen] = useState(false)
@@ -864,6 +865,7 @@ export function Home() {
     setSelectedScriptId('')
     setUsageStats(null)
     setYoutubeChannelLink('')
+    setYoutubeChannelNiche('')
     setYoutubeImportError('')
     setYoutubeImportLoading(false)
     setIsYouTubeStatsOpen(false)
@@ -975,6 +977,10 @@ export function Home() {
       setYoutubeImportError('Enter a YouTube channel link first.')
       return
     }
+    if (!youtubeChannelNiche.trim()) {
+      setYoutubeImportError('Enter a niche for this channel.')
+      return
+    }
 
     setYoutubeImportLoading(true)
     setYoutubeImportError('')
@@ -982,12 +988,13 @@ export function Home() {
     setYouTubeStats(null)
 
     try {
+      const trimmedNiche = youtubeChannelNiche.trim()
       const channel = await importYouTubeChannel(youtubeChannelLink)
       const payload = {
         user_id: authUserId,
         channel_name: channel.channelName,
         profile_source: 'youtube' as const,
-        niche: null,
+        niche: trimmedNiche,
         audience: null,
         tone: 'Reference',
         is_default: false,
@@ -2502,6 +2509,7 @@ export function Home() {
             {onboardingStep === 10 && (
               <OnboardingYouTubeImportStep
                 youtubeChannelLink={youtubeChannelLink}
+                youtubeChannelNiche={youtubeChannelNiche}
                 youtubeImportLoading={youtubeImportLoading}
                 youtubeImportError={youtubeImportError}
                 importedYouTubeProfile={importedYouTubeProfile}
@@ -2510,6 +2518,12 @@ export function Home() {
                 youtubeStatsError={youtubeStatsError}
                 onYoutubeChannelLinkChange={(value) => {
                   setYoutubeChannelLink(value)
+                  if (youtubeImportError) {
+                    setYoutubeImportError('')
+                  }
+                }}
+                onYoutubeChannelNicheChange={(value) => {
+                  setYoutubeChannelNiche(value)
                   if (youtubeImportError) {
                     setYoutubeImportError('')
                   }
@@ -3260,6 +3274,17 @@ export function Home() {
                         }}
                         placeholder="https://www.youtube.com/@yourchannel"
                       />
+                      <input
+                        type="text"
+                        value={youtubeChannelNiche}
+                        onChange={(event) => {
+                          setYoutubeChannelNiche(event.target.value)
+                          if (youtubeImportError) {
+                            setYoutubeImportError('')
+                          }
+                        }}
+                        placeholder="Select niche (e.g. AI automation)"
+                      />
                       <div className="youtube-import-actions">
                         <button className="btn secondary" type="submit" disabled={youtubeImportLoading}>
                           {youtubeImportLoading ? 'Importing...' : getYouTubeImportButtonLabel()}
@@ -3334,6 +3359,7 @@ export function Home() {
                             event.stopPropagation()
                             setYoutubeImportError('')
                             setYoutubeChannelLink(importedYouTubeProfile.youtubeChannelUrl || '')
+                            setYoutubeChannelNiche(importedYouTubeProfile.niche || '')
                           }}
                         >
                           Use current URL
@@ -3341,6 +3367,9 @@ export function Home() {
                       </div>
                       <div className="youtube-channel-description">
                         <p>{importedYouTubeProfile.youtubeDescription || 'No channel description available.'}</p>
+                      </div>
+                      <div className="tag-row">
+                        <span className="tag">Niche: {importedYouTubeProfile.niche || 'Not set'}</span>
                       </div>
                       {youtubeStatsLoading ? (
                         <p>Loading channel stats...</p>
@@ -3851,6 +3880,7 @@ function OnboardingAudienceStep({
 
 function OnboardingYouTubeImportStep({
   youtubeChannelLink,
+  youtubeChannelNiche,
   youtubeImportLoading,
   youtubeImportError,
   importedYouTubeProfile,
@@ -3858,10 +3888,12 @@ function OnboardingYouTubeImportStep({
   youtubeStatsLoading,
   youtubeStatsError,
   onYoutubeChannelLinkChange,
+  onYoutubeChannelNicheChange,
   onImport,
   onAddManually,
 }: {
   youtubeChannelLink: string
+  youtubeChannelNiche: string
   youtubeImportLoading: boolean
   youtubeImportError: string
   importedYouTubeProfile?: ChannelProfile
@@ -3869,6 +3901,7 @@ function OnboardingYouTubeImportStep({
   youtubeStatsLoading: boolean
   youtubeStatsError: string
   onYoutubeChannelLinkChange: (value: string) => void
+  onYoutubeChannelNicheChange: (value: string) => void
   onImport: () => void
   onAddManually: () => void
 }) {
@@ -3884,6 +3917,12 @@ function OnboardingYouTubeImportStep({
           value={youtubeChannelLink}
           onChange={(event) => onYoutubeChannelLinkChange(event.target.value)}
           placeholder="https://www.youtube.com/@yourchannel"
+        />
+        <input
+          type="text"
+          value={youtubeChannelNiche}
+          onChange={(event) => onYoutubeChannelNicheChange(event.target.value)}
+          placeholder="Select niche (e.g. AI automation)"
         />
         <div className="youtube-import-actions">
           <button className="btn secondary" onClick={onImport} disabled={youtubeImportLoading}>
@@ -3917,6 +3956,9 @@ function OnboardingYouTubeImportStep({
             </div>
           </div>
           <p>{importedYouTubeProfile.youtubeDescription || 'No channel description available.'}</p>
+          <div className="tag-row">
+            <span className="tag">Niche: {importedYouTubeProfile.niche || 'Not set'}</span>
+          </div>
           {youtubeStatsLoading ? (
             <p>Loading channel stats...</p>
           ) : hasMatchingStats && youtubeStats ? (
