@@ -41,7 +41,21 @@ function TermsPage() {
           acceptance of the latest version.
         </p>
 
-        <h2>6. Contact</h2>
+        <h2>6. Privacy Policy</h2>
+        <p>
+          Scriptr collects and processes account details, billing metadata, and service usage data to operate,
+          secure, and improve the platform. Personal data is handled in accordance with applicable privacy laws and
+          is not sold to third parties.
+        </p>
+
+        <h2>7. Refund Policy</h2>
+        <p>
+          Subscription charges are generally non-refundable once a billing cycle begins and credits are made
+          available. Refund requests related to duplicate charges, billing errors, or service disruptions may be
+          reviewed case by case by the support team.
+        </p>
+
+        <h2>8. Contact</h2>
         <p>For legal or policy questions, contact the Scriptr support team through official account channels.</p>
       </section>
     </main>
