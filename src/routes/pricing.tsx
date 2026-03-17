@@ -41,7 +41,7 @@ function PricingPage() {
       <section className="pricing-standalone-grid">
         <article className="pricing-standalone-card glass-panel">
           <h2>Starter</h2>
-          <p className="pricing-amount">$29.99</p>
+          <p className="pricing-amount">$1599</p>
           <ul>
             {starterFeatures.map((feature) => (
               <li key={feature}>{feature}</li>
@@ -51,7 +51,7 @@ function PricingPage() {
 
         <article className="pricing-standalone-card glass-panel featured">
           <h2>Growth</h2>
-          <p className="pricing-amount">$59.99</p>
+          <p className="pricing-amount">$4800</p>
           <ul>
             {growthFeatures.map((feature) => (
               <li key={feature}>{feature}</li>
