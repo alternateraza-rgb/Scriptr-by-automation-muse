@@ -48,20 +48,53 @@ type CleanScriptPromptPayload = {
 
 const ADVANCED_SYSTEM_PROMPT = `PROMPT_LOCK_VERSION: SCRIPTRR_V3_OUTLIER_ENGINE
 
-You are a top-tier YouTube strategist and script writer for faceless channels.
+You are an elite YouTube scriptwriter specializing in faceless documentary-style content designed for high retention and viral performance.
 
-You create high-retention, non-generic content based on real performance patterns.
+Follow these rules strictly:
 
-You do not brainstorm randomly.
-You analyze what works, avoid saturation, and generate strategic content ideas.
+WRITING RULES:
+- Write like a human, not AI
+- Keep sentences natural and smooth
+- Avoid robotic phrasing
+- Avoid filler and repetition
+- Do NOT use em dashes under any circumstances
+- Use simple punctuation only (commas, periods, question marks)
 
-You write in a cinematic, engaging, narration-first style.
-You avoid all generic AI phrasing and cliches.
+TONE RULES:
+- You will be given a tone
+- Match the tone exactly and consistently
+- Do not default to neutral tone
+- Do not mix tones
 
-You follow structure exactly.
-You return valid JSON only.`
+STRUCTURE RULES:
+- Follow the required structure exactly
+- Do not add extra sections
+- Do not rename sections
+- Do not skip sections
 
-const sectionOrder = ['Hook', 'Curiosity Gap', 'Setup', 'Escalation', 'New Information', 'Mid Reset', 'Reveal', 'Payoff', 'CTA']
+RETENTION RULES:
+- Start strong and create curiosity immediately
+- Use smooth transitions between ideas
+- Keep the flow engaging and story-driven
+- Avoid overexplaining
+
+OUTPUT RULES:
+- No disclaimers
+- No meta commentary
+- No mentioning "this script"
+- Only output the final script
+
+USER RULES PRIORITY:
+- You will receive USER RULES
+- Treat them as strict instructions
+- Apply them throughout the output
+- Do not ignore them
+- If possible, combine them with tone naturally
+- Do not break required structure
+
+Return valid JSON only.`
+
+const sectionOrder = ['Hook', 'Curiosity Gap', 'Setup', 'Main Content', 'Payoff']
 
 const PLACEHOLDER_MATCHES = ['audience profile not set yet', 'add inspiration channels', 'untitled channel']
 const BANNED_PHRASES = [
@@ -146,6 +179,175 @@ const countWords = (value: string) => value.split(/\s+/).map((part) => part.trim
 
 const countScriptWords = (script: GeneratedScript) => script.script.sections.reduce((total, section) => total + countWords(section.text), 0)
 
+const sanitizeGeneratedText = (value: string) => {
+  const withoutFences = value
+    .replace(/```(?:json)?/gi, '')
+    .replace(/```/g, '')
+    .replace(/[—–]/g, ',')
+    .replace(/\r\n/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .trim()
+
+  const normalizedLines = withoutFences
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\s+,/g, ',')
+        .replace(/,\s*,+/g, ', ')
+        .trim(),
+    )
+    .join('\n')
+
+  return normalizedLines
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim()
+}
+
+const toTitleCase = (value: string) =>
+  value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ')
+
+const buildChapterTitleFromChunk = (chunk: string, index: number) => {
+  const fallbackTitles = ['Opening Shift', 'Pressure Builds', 'The Turning Point', 'What Comes Next']
+  const firstSentence = chunk
+    .split(/[.!?]\s+/)[0]
+    ?.replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!firstSentence) {
+    return fallbackTitles[index] || `Chapter ${index + 1}`
+  }
+
+  const commonWords = new Set([
+    'the',
+    'a',
+    'an',
+    'and',
+    'or',
+    'but',
+    'to',
+    'of',
+    'in',
+    'on',
+    'for',
+    'with',
+    'is',
+    'are',
+    'was',
+    'were',
+    'that',
+    'this',
+    'it',
+    'as',
+    'at',
+    'by',
+    'from',
+    'into',
+    'their',
+    'they',
+    'his',
+    'her',
+    'its',
+    'you',
+    'your',
+  ])
+
+  const keywords = firstSentence
+    .split(' ')
+    .map((word) => word.toLowerCase())
+    .filter((word) => word.length > 2 && !commonWords.has(word))
+
+  const pickedWords = keywords.slice(0, 5)
+  if (!pickedWords.length) {
+    return fallbackTitles[index] || `Chapter ${index + 1}`
+  }
+
+  return toTitleCase(pickedWords.join(' '))
+}
+
+const ensureMainContentHasChapters = (text: string) => {
+  const normalized = sanitizeGeneratedText(text)
+  if (!normalized) {
+    return normalized
+  }
+  if (/^chapter\s+\d+\s*:/im.test(normalized)) {
+    return normalized
+  }
+
+  const sentences = normalized.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g)?.map((item) => item.trim()).filter(Boolean) || []
+  if (!sentences.length) {
+    return normalized
+  }
+
+  const chapterCount = sentences.length >= 24 ? 4 : 3
+  const chunkSize = Math.max(1, Math.ceil(sentences.length / chapterCount))
+  const chunks: string[] = []
+  for (let index = 0; index < sentences.length; index += chunkSize) {
+    chunks.push(sentences.slice(index, index + chunkSize).join(' '))
+  }
+
+  return chunks
+    .slice(0, chapterCount)
+    .map((chunk, index) => `Chapter ${index + 1}: ${buildChapterTitleFromChunk(chunk, index)}\n${chunk}`)
+    .join('\n\n')
+}
+
+const toneDefinitions = `## TONE DEFINITIONS:
+
+Conversational:
+- Casual, simple, clear
+- Feels like talking to a friend
+
+Dark:
+- Serious, tense, slightly dramatic
+- Focus on suspense and intensity
+
+High Energy:
+- Fast-paced, punchy, exciting
+- Short impactful sentences
+
+Dramatic:
+- Intense and emotional with clear stakes
+- Builds urgency and tension
+
+Authoritative:
+- Confident, direct, and expert-led
+- Clear claims supported by reasoning
+
+Educational:
+- Clear, explanatory, and structured
+- Teaches while keeping momentum
+
+Cinematic:
+- Visual, atmospheric, and story-led
+- Uses vivid pacing and scene flow
+
+Viral / punchy:
+- Sharp and provocative with strong hooks
+- Compact lines built for momentum
+
+Luxury:
+- Polished, premium, and aspirational
+- Precise language with understated confidence
+
+Motivating:
+- Uplifting and action-oriented
+- Encourages with clear momentum
+
+Documentary:
+- Investigative, grounded, and narrative
+- Evidence-led with smooth storytelling
+
+Custom:
+- Match the provided custom tone description exactly
+- Stay consistent from start to finish`
+
 const cleanPromptPayload = (input: ScriptWriterInput): CleanScriptPromptPayload => {
   const context = input.context || ({} as ChannelContext)
 
@@ -218,28 +420,70 @@ const cleanPromptPayload = (input: ScriptWriterInput): CleanScriptPromptPayload 
 
 const buildScriptPrompt = (payload: CleanScriptPromptPayload) => {
   const lengthTargets = buildLengthTargets(payload.variables.videoLength)
-  return `Cleaned variables:\n${JSON.stringify(payload.variables, null, 2)}
+  const exampleChannels = payload.variables.exampleChannels.length ? payload.variables.exampleChannels.join(', ') : 'None provided'
+  const userRules = payload.variables.userNotes || 'No additional user rules provided.'
+  const topic = payload.variables.videoTopicIdea || payload.selectedIdea.title
 
-YouTube outlier research findings:\n${JSON.stringify(payload.youtubeOutlierResearch, null, 2)}
+  return `${toneDefinitions}
 
-Selected idea:\n${JSON.stringify(payload.selectedIdea, null, 2)}
+## CONTEXT BLOCK:
 
-Master outline:\n${JSON.stringify(payload.masterOutline, null, 2)}
+CHANNEL CONTEXT:
+Niche: ${payload.variables.niche}
+Target Audience: ${payload.variables.targetAudience}
+Tone: ${payload.variables.tone}
+Video Length: ${payload.variables.videoLength}
+Video Format: ${payload.variables.videoFormat}
+Example Channels: ${exampleChannels}
 
-Exact section structure:\n${JSON.stringify(payload.sectionStructure, null, 2)}
+TOPIC:
+${topic}
 
-Strict writing rules:
-- Produce a cinematic, spoken, high-retention script with natural pacing.
-- Tone control: follow tone exactly as provided in cleaned variables.
-- Respect video length and keep total word count between ${lengthTargets.minimumWords} and ${lengthTargets.maximumWords} words.
-- Target close to ${lengthTargets.targetWords} words.
-- Use audiencePainPoints as direct narrative anchors.
-- Keep consistency across idea, title, outline, and script.
-- Do not use em dashes.
-- No generic phrasing.
-- No filler.
-- No repetition.
-- Never use these banned phrases: ${BANNED_PHRASES.join('; ')}.
+---
+
+## USER RULES BLOCK:
+
+USER RULES:
+${userRules}
+
+Follow these USER RULES carefully.
+Treat them as required instructions, not suggestions.
+
+---
+
+## TASK PROMPT:
+
+Write a high-retention YouTube script using this exact structure:
+
+Hook
+Curiosity Gap
+Setup
+Main Content
+Payoff
+
+IMPORTANT:
+- Follow this structure exactly
+- Do not add extra sections
+- Do not rename sections
+
+STYLE:
+- Match the selected tone exactly: ${payload.variables.tone}
+- Apply USER RULES throughout the script
+- Keep writing natural and engaging
+- Avoid fluff
+- Do not use em dashes
+- Never use these banned phrases: ${BANNED_PHRASES.join('; ')}
+- Keep total word count between ${lengthTargets.minimumWords} and ${lengthTargets.maximumWords} words
+- Target close to ${lengthTargets.targetWords} words
+
+FORMATTING RULES:
+- Keep section text in clean, evenly spaced paragraphs
+- Split long blocks into short paragraphs for readability
+- In Main Content, include 3 to 5 chapters with unique relevant titles
+- Format chapter headers exactly like: Chapter 1: [Unique Title]
+- Add one blank line between each paragraph and chapter block
+
+Make the script feel like a viral YouTube documentary.
 
 Return JSON only in this exact shape:
 {
@@ -249,12 +493,8 @@ Return JSON only in this exact shape:
       { "section": "Hook", "text": "..." },
       { "section": "Curiosity Gap", "text": "..." },
       { "section": "Setup", "text": "..." },
-      { "section": "Escalation", "text": "..." },
-      { "section": "New Information", "text": "..." },
-      { "section": "Mid Reset", "text": "..." },
-      { "section": "Reveal", "text": "..." },
-      { "section": "Payoff", "text": "..." },
-      { "section": "CTA", "text": "..." }
+      { "section": "Main Content", "text": "..." },
+      { "section": "Payoff", "text": "..." }
     ]
   }
 }`
@@ -275,8 +515,11 @@ Strict rewrite rules:
 - Preserve storyline logic and facts.
 - Rewrite to between ${minimumWords} and ${maximumWords} words.
 - Target close to ${targetWords} words.
-- Keep tone and audiencePainPoints aligned to cleaned variables.
+- Keep tone aligned exactly to: ${payload.variables.tone}.
+- Apply USER RULES exactly as required: ${payload.variables.userNotes || 'No additional user rules provided.'}
 - No generic phrasing and no em dashes.
+- Keep clean paragraph spacing with one blank line between paragraphs.
+- Main Content must include 3 to 5 chapter headers in the format: Chapter 1: [Unique Title].
 
 Return JSON only in this exact shape:
 {
@@ -286,12 +529,8 @@ Return JSON only in this exact shape:
       { "section": "Hook", "text": "..." },
       { "section": "Curiosity Gap", "text": "..." },
       { "section": "Setup", "text": "..." },
-      { "section": "Escalation", "text": "..." },
-      { "section": "New Information", "text": "..." },
-      { "section": "Mid Reset", "text": "..." },
-      { "section": "Reveal", "text": "..." },
-      { "section": "Payoff", "text": "..." },
-      { "section": "CTA", "text": "..." }
+      { "section": "Main Content", "text": "..." },
+      { "section": "Payoff", "text": "..." }
     ]
   }
 }`
@@ -354,10 +593,13 @@ export const generateFullScript = async (input: ScriptWriterInput): Promise<Gene
 
   const normalizedScript = {
     script: {
-      title,
+      title: sanitizeGeneratedText(title),
       sections: sectionOrder.map((section) => ({
         section,
-        text: sectionMap.get(section.toLowerCase()) || '',
+        text:
+          section === 'Main Content'
+            ? ensureMainContentHasChapters(sectionMap.get(section.toLowerCase()) || '')
+            : sanitizeGeneratedText(sectionMap.get(section.toLowerCase()) || ''),
       })),
     },
   }
@@ -400,10 +642,20 @@ export const generateFullScript = async (input: ScriptWriterInput): Promise<Gene
 
   return {
     script: {
-      title: typeof correctedScript.title === 'string' && correctedScript.title.trim() ? correctedScript.title.trim() : normalizedScript.script.title,
+      title:
+        typeof correctedScript.title === 'string' && correctedScript.title.trim()
+          ? sanitizeGeneratedText(correctedScript.title.trim())
+          : normalizedScript.script.title,
       sections: sectionOrder.map((section) => ({
         section,
-        text: correctedMap.get(section.toLowerCase()) || normalizedScript.script.sections.find((item) => item.section === section)?.text || '',
+        text:
+          section === 'Main Content'
+            ? ensureMainContentHasChapters(
+                correctedMap.get(section.toLowerCase()) || normalizedScript.script.sections.find((item) => item.section === section)?.text || '',
+              )
+            : sanitizeGeneratedText(
+                correctedMap.get(section.toLowerCase()) || normalizedScript.script.sections.find((item) => item.section === section)?.text || '',
+              ),
       })),
     },
   }

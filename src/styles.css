@@ -1118,6 +1118,30 @@ label {
   color: #f9f9f9;
 }
 
+.script-section-block {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.script-section-body {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.script-section-body p {
+  margin: 0;
+  line-height: 1.75;
+  color: #e9e9e9;
+}
+
+.script-section-body h5 {
+  margin: 0.18rem 0 0;
+  font-size: 0.84rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #ffb6be;
+}
+
 .skeleton-stack {
   display: grid;
   gap: 0.55rem;
