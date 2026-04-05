@@ -565,8 +565,17 @@ const looksLikeHeading = (line: string) => {
   if (/^([A-Z][A-Z0-9\s'&/-]{2,}|[A-Z][A-Z0-9\s'&/-]{2,}:)$/.test(trimmed)) {
     return true
   }
-  return /^(hook|curiosity gap|setup|escalation|new information|mid reset|reveal|payoff|cta|intro|introduction|body|main points?|part \d+|section \d+|conclusion|outro)\b[:\s-]*/i.test(trimmed)
+  return /^(hook|curiosity gap|setup|escalation|new information|mid reset|reveal|payoff|cta|intro|introduction|body|main points?|part \d+|section \d+|chapter \d+|conclusion|outro)\b[:\s-]*/i.test(trimmed)
 }
+
+const splitScriptParagraphs = (text: string) =>
+  (text || '')
+    .replace(/\r\n/g, '\n')
+    .split(/\n{2,}/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+
+const isChapterHeading = (text: string) => /^chapter\s+\d+\s*:/i.test(text.trim())
 
 type ScriptPdfBlock =
   | { kind: 'heading'; text: string }
@@ -2915,9 +2924,17 @@ export function Home() {
                             <h4>Title</h4>
                             <p>{scriptDraft.script.title}</p>
                             {scriptDraft.script.sections.map((section, index) => (
-                              <div key={`${section.section}-${index}`}>
+                              <div key={`${section.section}-${index}`} className="script-section-block">
                                 <h4>{section.section}</h4>
-                                <p>{section.text}</p>
+                                <div className="script-section-body">
+                                  {splitScriptParagraphs(section.text).map((paragraph, paragraphIndex) =>
+                                    isChapterHeading(paragraph) ? (
+                                      <h5 key={`${section.section}-${index}-chapter-${paragraphIndex}`}>{paragraph}</h5>
+                                    ) : (
+                                      <p key={`${section.section}-${index}-paragraph-${paragraphIndex}`}>{paragraph}</p>
+                                    ),
+                                  )}
+                                </div>
                               </div>
                             ))}
                           </article>
