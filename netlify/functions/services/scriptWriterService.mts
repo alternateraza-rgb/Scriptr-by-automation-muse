@@ -96,7 +96,7 @@ Return valid JSON only.`
 
 const sectionOrder = ['Hook', 'Curiosity Gap', 'Setup', 'Main Content', 'Payoff']
 
-const PLACEHOLDER_MATCHES = ['audience profile not set yet', 'add inspiration channels', 'untitled channel']
+const PLACEHOLDER_MATCHES = ['audience profile not set yet', 'add inspiration channels', 'add inspiration videos', 'untitled channel']
 const BANNED_PHRASES = [
   'What if I told you',
   'In this video',

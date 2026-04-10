@@ -253,6 +253,20 @@ const FAQ = [
   },
 ]
 
+const IDEA_STATS_HEADLINES = [
+  'Good news, this video idea already killed it on YouTube.',
+  'Strong signal: this angle has already proven it can win on YouTube.',
+  'Momentum is real: viewers already responded hard to this exact topic lane.',
+  'Validation unlocked: this concept has a proven winner in the market.',
+]
+
+const IDEA_STATS_TIPS = [
+  'Once a video idea performs on YouTube, similar follow-up concepts often carry an estimated 81% win probability.',
+  'Validated topics tend to convert faster because viewers already understand the value proposition at first glance.',
+  'When a concept already has market proof, packaging and execution become the main multiplier for repeat performance.',
+  'Existing audience demand reduces guesswork and increases the odds of early traction on new uploads.',
+]
+
 const getPrimaryNiche = (onboarding: OnboardingState) => onboarding.customNiche || onboarding.niche || 'General'
 const getPrimaryTone = (onboarding: OnboardingState) => onboarding.customTone || onboarding.tone || 'Conversational'
 const toCsv = (values: string[] | undefined) =>
@@ -270,9 +284,78 @@ const fromCsv = (value: string | null | undefined) =>
         .filter(Boolean)
     : []
 
+const YOUTUBE_VIDEO_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'www.youtu.be'])
+
+const getYouTubeVideoId = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return ''
+    }
+
+    const hostname = parsed.hostname.toLowerCase()
+    if (!YOUTUBE_VIDEO_HOSTS.has(hostname)) {
+      return ''
+    }
+
+    if (hostname.includes('youtu.be')) {
+      return parsed.pathname.split('/').filter(Boolean)[0] || ''
+    }
+
+    const pathParts = parsed.pathname.split('/').filter(Boolean)
+    if (pathParts[0] === 'shorts') {
+      return ''
+    }
+
+    if (pathParts[0] === 'embed' || pathParts[0] === 'live') {
+      return pathParts[1] || ''
+    }
+
+    return parsed.searchParams.get('v')?.trim() || ''
+  } catch {
+    return ''
+  }
+}
+
+const isAllowedYouTubeVideoUrl = (value: string) => !/\/shorts\//i.test(value) && Boolean(getYouTubeVideoId(value))
+
+const getInvalidExampleVideoUrls = (values: string[] | undefined) =>
+  (values || []).map((value) => value.trim()).filter((value) => value && !isAllowedYouTubeVideoUrl(value))
+
+const normalizeExampleVideoUrls = (values: string[] | undefined) =>
+  [...new Set((values || []).map((value) => value.trim()).filter((value) => isAllowedYouTubeVideoUrl(value)))]
+
 const formatSubscriberCount = (value: number) => new Intl.NumberFormat('en-US').format(value)
 const formatCompactCount = (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value)
+const formatUsdAmount = (value: number) =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(Math.max(0, value))
+const formatLongDate = (value: string) =>
+  parseIsoDate(value)?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) || 'Unknown date'
 const getYouTubeImportButtonLabel = () => 'Add channel with channel URL'
+
+const hashSeed = (value: string) => {
+  let hash = 0
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0
+  }
+  return hash
+}
+
+const pickOrganicCopy = (seed: string, options: string[]) => {
+  if (!options.length) {
+    return ''
+  }
+  return options[hashSeed(seed) % options.length]
+}
 
 const parseIsoDate = (value: string | undefined) => {
   if (!value) {
@@ -441,7 +524,7 @@ const toChannelProfile = (row: ChannelProfileRow): ChannelProfile => {
     userNotes: row.user_notes || undefined,
     ctaStyle: 'Subscriber CTA',
     frequency: row.upload_frequency || '1 video per month',
-    inspirations: row.example_channels || 'Add inspiration channels',
+    inspirations: row.example_channels || 'Add inspiration videos',
     brandVoice: row.tone || 'Conversational',
     profileSource,
     youtubeChannelUrl: row.youtube_channel_url || undefined,
@@ -472,7 +555,7 @@ const buildPrimaryProfile = (onboarding: OnboardingState): ChannelProfile => ({
   userNotes: onboarding.primaryGoal || undefined,
   ctaStyle: onboarding.primaryGoal || 'Subscriber CTA',
   frequency: onboarding.uploadFrequency || '1 video per month',
-  inspirations: 'Add inspiration channels',
+  inspirations: 'Add inspiration videos',
   brandVoice: getPrimaryTone(onboarding),
   profileSource: 'manual',
   isDefault: true,
@@ -789,6 +872,7 @@ export function Home() {
   const [youtubeStatsLoading, setYouTubeStatsLoading] = useState(false)
   const [youtubeStatsError, setYouTubeStatsError] = useState('')
   const [youtubeStats, setYouTubeStats] = useState<ImportedYouTubeChannelStats | null>(null)
+  const [exampleVideoInputError, setExampleVideoInputError] = useState('')
 
   const [channelContext, setChannelContext] = useState<ChannelContext>({
     channelProfile: '',
@@ -808,6 +892,8 @@ export function Home() {
 
   const [videoIdeas, setVideoIdeas] = useState<VideoIdea[]>([])
   const [selectedIdeaIndex, setSelectedIdeaIndex] = useState<number | null>(null)
+  const [ideaStatsModalIndex, setIdeaStatsModalIndex] = useState<number | null>(null)
+  const [ideaStatsSelectedVideoIndex, setIdeaStatsSelectedVideoIndex] = useState(0)
   const [titleOptions, setTitleOptions] = useState<TitlePayload | null>(null)
   const [selectedTitle, setSelectedTitle] = useState('')
   const [outlineBlocks, setOutlineBlocks] = useState<OutlineSection[]>([])
@@ -850,6 +936,46 @@ export function Home() {
     () => profiles.find((profile) => profile.profileSource === 'youtube'),
     [profiles],
   )
+  const activeIdeaForStats = useMemo(
+    () => (ideaStatsModalIndex === null ? null : videoIdeas[ideaStatsModalIndex] || null),
+    [ideaStatsModalIndex, videoIdeas],
+  )
+  const activeIdeaInspirationVideos = useMemo(() => {
+    if (!activeIdeaForStats) {
+      return []
+    }
+    if (Array.isArray(activeIdeaForStats.inspirationVideos) && activeIdeaForStats.inspirationVideos.length > 0) {
+      return activeIdeaForStats.inspirationVideos.slice(0, 3)
+    }
+    return activeIdeaForStats.inspirationVideo ? [activeIdeaForStats.inspirationVideo] : []
+  }, [activeIdeaForStats])
+  const activeIdeaStatVideo = useMemo(() => {
+    if (!activeIdeaInspirationVideos.length) {
+      return null
+    }
+    const clampedIndex = Math.min(Math.max(ideaStatsSelectedVideoIndex, 0), activeIdeaInspirationVideos.length - 1)
+    return activeIdeaInspirationVideos[clampedIndex] || null
+  }, [activeIdeaInspirationVideos, ideaStatsSelectedVideoIndex])
+  const activeIdeaStatsHeadline = useMemo(() => {
+    if (ideaStatsModalIndex === null || !activeIdeaForStats) {
+      return ''
+    }
+    const seed = `${activeIdeaForStats.title}-${ideaStatsModalIndex}`
+    return pickOrganicCopy(seed, IDEA_STATS_HEADLINES)
+  }, [activeIdeaForStats, ideaStatsModalIndex])
+  const activeIdeaStatsTip = useMemo(() => {
+    if (ideaStatsModalIndex === null || !activeIdeaForStats) {
+      return ''
+    }
+    const seed = `${activeIdeaForStats.title}-${activeIdeaStatVideo?.videoId || 'fallback'}-tip`
+    return pickOrganicCopy(seed, IDEA_STATS_TIPS)
+  }, [activeIdeaForStats, activeIdeaStatVideo, ideaStatsModalIndex])
+
+  useEffect(() => {
+    if (ideaStatsModalIndex !== null) {
+      setIdeaStatsSelectedVideoIndex(0)
+    }
+  }, [ideaStatsModalIndex])
 
   const buildDefaultProfileInput = (userId: string, onboardingState: OnboardingState) => ({
     user_id: userId,
@@ -881,6 +1007,8 @@ export function Home() {
     setYouTubeStatsLoading(false)
     setYouTubeStatsError('')
     setYouTubeStats(null)
+    setIdeaStatsModalIndex(null)
+    setIdeaStatsSelectedVideoIndex(0)
     setIsCompletingOnboarding(false)
     setAutosavedScriptId(null)
     onboardingSyncErrorShownRef.current = false
@@ -1234,7 +1362,7 @@ export function Home() {
       exampleChannels:
         value.exampleChannels && value.exampleChannels.length
           ? value.exampleChannels
-          : fromCsv(primaryProfile.inspirations),
+          : normalizeExampleVideoUrls(fromCsv(primaryProfile.inspirations)),
       userNotes: value.userNotes || primaryProfile.userNotes || onboarding.primaryGoal || '',
       audiencePainPoints: value.audiencePainPoints || primaryProfile.audiencePainPoints || onboarding.painPoints || '',
       channelStyle: value.channelStyle || value.videoFormat || primaryProfile.videoFormat || onboarding.contentStyle,
@@ -1767,12 +1895,29 @@ export function Home() {
       openToast('Add niche, target audience, and video topic idea to generate ideas.')
       return
     }
+    const invalidExampleVideoUrls = getInvalidExampleVideoUrls(channelContext.exampleChannels)
+    if (invalidExampleVideoUrls.length) {
+      setExampleVideoInputError('Only standard YouTube video URLs are allowed. YouTube Shorts links are not supported.')
+      openToast('Use standard YouTube video links only. Shorts are not supported.')
+      return
+    }
+
+    const normalizedExampleVideoUrls = normalizeExampleVideoUrls(channelContext.exampleChannels)
+    const requestContext =
+      normalizedExampleVideoUrls.length === (channelContext.exampleChannels || []).length
+        ? channelContext
+        : { ...channelContext, exampleChannels: normalizedExampleVideoUrls }
+    setExampleVideoInputError('')
 
     setJourneyFocused(true)
     await withGenerationState('Conducting outlier research...', () => void generateIdeas(), async () => {
-      const data = await requestIdeas(channelContext)
+      const data = await requestIdeas(requestContext)
+      if (requestContext !== channelContext) {
+        setChannelContext((value) => ({ ...value, exampleChannels: normalizedExampleVideoUrls }))
+      }
       setVideoIdeas(data.ideas.slice(0, 3))
       setSelectedIdeaIndex(null)
+      setIdeaStatsModalIndex(null)
       setTitleOptions(null)
       setSelectedTitle('')
       setOutlineBlocks([])
@@ -2709,20 +2854,26 @@ export function Home() {
                         />
                       </label>
                       <label>
-                        Example channels
+                        Example videos
                         <input
                           value={(channelContext.exampleChannels || []).join(', ')}
-                          onChange={(event) =>
+                          onChange={(event) => {
+                            const exampleVideos = event.target.value
+                              .split(',')
+                              .map((item) => item.trim())
+                              .filter(Boolean)
+
                             setChannelContext((value) => ({
                               ...value,
-                              exampleChannels: event.target.value
-                                .split(',')
-                                .map((item) => item.trim())
-                                .filter(Boolean),
+                              exampleChannels: exampleVideos,
                             }))
-                          }
-                          placeholder="Channel A, Channel B"
+                            if (!getInvalidExampleVideoUrls(exampleVideos).length) {
+                              setExampleVideoInputError('')
+                            }
+                          }}
+                          placeholder="https://www.youtube.com/watch?v=abc123, https://youtu.be/xyz789"
                         />
+                        {exampleVideoInputError ? <p className="error-message">{exampleVideoInputError}</p> : null}
                       </label>
                       <label>
                         User notes
@@ -2821,6 +2972,9 @@ export function Home() {
                           <div className="card-grid">
                             {videoIdeas.slice(0, 3).map((idea, index) => {
                               const outlierStatus = normalizeOutlierStatus(idea.outlierStatus)
+                              const sourceVideoCount =
+                                (Array.isArray(idea.inspirationVideos) && idea.inspirationVideos.length) ||
+                                (idea.inspirationVideo ? 1 : 0)
 
                               return (
                                 <article
@@ -2844,8 +2998,27 @@ export function Home() {
                                   <p>
                                     <strong>Hook angle:</strong> {idea.hook_angle}
                                   </p>
+                                  {sourceVideoCount > 0 ? (
+                                    <p className="idea-source-count">
+                                      {sourceVideoCount} matched viral {sourceVideoCount === 1 ? 'video' : 'videos'} across separate angles.
+                                    </p>
+                                  ) : null}
                                   <div className="idea-card-footer">
-                                    <span className="tag">Click score: {idea.click_score}</span>
+                                    <button
+                                      className="btn secondary idea-stats-trigger"
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        setIdeaStatsModalIndex(index)
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') {
+                                          event.stopPropagation()
+                                        }
+                                      }}
+                                      type="button"
+                                    >
+                                      View stats
+                                    </button>
                                     <span className={`outlier-bubble status-${outlierStatus.toLowerCase()}`}>Outlier: {outlierStatus}</span>
                                   </div>
                                 </article>
@@ -3674,6 +3847,142 @@ export function Home() {
             ) : (
               <div className="youtube-stats-empty-state">
                 <p>No stats data is available for this channel.</p>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {ideaStatsModalIndex !== null && activeIdeaForStats && (
+        <div
+          className="idea-stats-backdrop"
+          role="presentation"
+          onClick={() => setIdeaStatsModalIndex(null)}
+        >
+          <section
+            className="idea-stats-modal glass-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="idea-stats-title"
+            aria-describedby="idea-stats-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="idea-stats-header">
+              <div>
+                <p className="eyebrow">Topic Validation</p>
+                <h2 id="idea-stats-title">{activeIdeaStatsHeadline}</h2>
+                <p id="idea-stats-description">{activeIdeaForStats.title}</p>
+              </div>
+              <button className="btn ghost" onClick={() => setIdeaStatsModalIndex(null)} aria-label="Close idea stats">
+                <X className="icon-inline" />
+                Close
+              </button>
+            </div>
+
+            <div className="idea-stats-tip">
+              <Lightbulb className="icon-inline" />
+              <p>{activeIdeaStatsTip}</p>
+            </div>
+
+            {activeIdeaStatVideo ? (
+              <div className="idea-stats-content-grid">
+                {activeIdeaInspirationVideos.length > 1 ? (
+                  <div className="idea-source-angle-list">
+                    {activeIdeaInspirationVideos.map((video, index) => (
+                      <button
+                        key={`${video.videoId}-${index}`}
+                        type="button"
+                        className={`idea-source-angle-pill ${activeIdeaStatVideo.videoId === video.videoId ? 'active' : ''}`}
+                        onClick={() => setIdeaStatsSelectedVideoIndex(index)}
+                      >
+                        <span>{video.angleLabel || `Angle ${index + 1}`}</span>
+                        <strong>{video.title}</strong>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <article className="idea-source-card">
+                  <a
+                    className="idea-source-thumbnail-wrap"
+                    href={activeIdeaStatVideo.videoUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${activeIdeaStatVideo.title} on YouTube`}
+                  >
+                    {activeIdeaStatVideo.thumbnail ? (
+                      <img
+                        src={activeIdeaStatVideo.thumbnail}
+                        alt={activeIdeaStatVideo.title}
+                        loading="lazy"
+                        className="idea-source-thumbnail"
+                      />
+                    ) : (
+                      <div className="idea-source-thumbnail-fallback">
+                        <Play className="icon-inline" />
+                        Top performer
+                      </div>
+                    )}
+                  </a>
+                  <div className="idea-source-copy">
+                    <h3>{activeIdeaStatVideo.title}</h3>
+                    <p>{activeIdeaStatVideo.channelTitle}</p>
+                    <p>Published {formatLongDate(activeIdeaStatVideo.publishedAt)}</p>
+                  </div>
+                  <a
+                    className="btn secondary"
+                    href={activeIdeaStatVideo.videoUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Watch source video
+                  </a>
+                </article>
+
+                <section className="idea-stats-bubbles">
+                  <article className="idea-stat-bubble">
+                    <span>Total Views</span>
+                    <strong>{formatSubscriberCount(activeIdeaStatVideo.views)}</strong>
+                  </article>
+                  <article className="idea-stat-bubble">
+                    <span>Total Likes</span>
+                    <strong>{formatSubscriberCount(activeIdeaStatVideo.likes)}</strong>
+                  </article>
+                  <article className="idea-stat-bubble">
+                    <span>Total Comments</span>
+                    <strong>{formatSubscriberCount(activeIdeaStatVideo.comments)}</strong>
+                  </article>
+                  <article className="idea-stat-bubble">
+                    <span>Total Revenue Generated</span>
+                    <strong>{formatUsdAmount(activeIdeaStatVideo.estimatedRevenue || 0)}</strong>
+                  </article>
+                </section>
+
+                <aside className="idea-stats-timeline">
+                  <h4>Viral Timeline</h4>
+                  <div className="idea-timeline-track">
+                    <div className="idea-timeline-event">
+                      <span className="timeline-dot" />
+                      <div>
+                        <p>Video Uploaded</p>
+                        <strong>{formatLongDate(activeIdeaStatVideo.publishedAt)}</strong>
+                      </div>
+                    </div>
+                    <div className="idea-timeline-line" />
+                    <div className="idea-timeline-event success">
+                      <span className="timeline-dot">
+                        <Check className="icon-inline" />
+                      </span>
+                      <div>
+                        <p>Video Went Viral</p>
+                        <strong>{formatLongDate(activeIdeaStatVideo.viralLiftDate || '')}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            ) : (
+              <div className="youtube-stats-empty-state">
+                <p>No supporting YouTube source video was available for this idea yet.</p>
               </div>
             )}
           </section>

@@ -27,6 +27,21 @@ type YouTubeSearchItem = {
   }
 }
 
+type YouTubeVideoDetailsItem = {
+  id?: string
+  snippet?: {
+    publishedAt?: string
+  }
+  statistics?: {
+    viewCount?: string
+    likeCount?: string
+    commentCount?: string
+  }
+  contentDetails?: {
+    duration?: string
+  }
+}
+
 type NormalizedContext = {
   niche: string
   videoTopicIdea: string
@@ -70,6 +85,21 @@ type ResearchVideo = {
   viewsPerDay: number
   outlierSignals: OutlierSignals
   outlierStatus: OutlierStatus
+}
+
+type IdeaInspirationVideo = {
+  videoId: string
+  title: string
+  channelTitle: string
+  thumbnail: string
+  publishedAt: string
+  views: number
+  likes: number
+  comments: number
+  estimatedRevenue: number
+  videoUrl: string
+  viralLiftDate: string
+  angleLabel: string
 }
 
 type ResearchInsights = {
@@ -126,12 +156,11 @@ const RANKED_CLICK_ORDER: ClickScore[] = ['high', 'medium', 'low']
 const FETCH_TIMEOUT_MS = 8000
 const RESEARCH_WINDOW_YEARS = 3
 const SEARCH_RESULTS_PER_QUERY = 10
-const MIN_RESEARCH_RESULTS = 8
-const MAX_RESEARCH_RESULTS = 10
-const RESEARCH_CACHE_TTL_MS = 8 * 60 * 60 * 1000
+const MAX_RESEARCH_RESULTS = 12
+const RESEARCH_CACHE_TTL_MS = 30 * 60 * 1000
 const RESEARCH_CACHE_MAX_ENTRIES = 250
 
-const PLACEHOLDER_SNIPPETS = ['audience profile not set yet', 'add inspiration channels']
+const PLACEHOLDER_SNIPPETS = ['audience profile not set yet', 'add inspiration channels', 'add inspiration videos']
 
 const STOP_WORDS = new Set([
   'the',
@@ -181,6 +210,41 @@ const asArray = (value: unknown) =>
         .filter(Boolean)
     : []
 
+const YOUTUBE_VIDEO_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'www.youtu.be'])
+
+const getYouTubeVideoId = (value: string) => {
+  try {
+    const parsed = new URL(value)
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return ''
+    }
+
+    const hostname = parsed.hostname.toLowerCase()
+    if (!YOUTUBE_VIDEO_HOSTS.has(hostname)) {
+      return ''
+    }
+
+    if (hostname.includes('youtu.be')) {
+      return parsed.pathname.split('/').filter(Boolean)[0] || ''
+    }
+
+    const pathParts = parsed.pathname.split('/').filter(Boolean)
+    if (pathParts[0] === 'shorts') {
+      return ''
+    }
+
+    if (pathParts[0] === 'embed' || pathParts[0] === 'live') {
+      return pathParts[1] || ''
+    }
+
+    return parsed.searchParams.get('v')?.trim() || ''
+  } catch {
+    return ''
+  }
+}
+
+const isAllowedYouTubeVideoUrl = (value: string) => !/\/shorts\//i.test(value) && Boolean(getYouTubeVideoId(value))
+
 const toIsoDate = (value: unknown) => {
   if (typeof value !== 'string' || !value.trim()) {
     return ''
@@ -190,6 +254,52 @@ const toIsoDate = (value: unknown) => {
 }
 
 const normalizeWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim()
+
+const parsePositiveInt = (value: unknown) => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? Math.round(value) : 0
+  }
+  if (typeof value !== 'string') {
+    return 0
+  }
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+const getDaysSincePublished = (publishedAt: string) => {
+  const publishedDate = new Date(publishedAt)
+  if (Number.isNaN(publishedDate.getTime())) {
+    return 1
+  }
+  const elapsed = Date.now() - publishedDate.getTime()
+  return Math.max(1, Math.round(elapsed / (1000 * 60 * 60 * 24)))
+}
+
+const calculateViralLiftDate = (publishedAt: string, viewsPerDay: number) => {
+  const publishedDate = new Date(publishedAt)
+  if (Number.isNaN(publishedDate.getTime())) {
+    return ''
+  }
+
+  const daysToLift =
+    viewsPerDay >= 35000 ? 2 : viewsPerDay >= 18000 ? 4 : viewsPerDay >= 9000 ? 7 : viewsPerDay >= 4000 ? 11 : 15
+
+  const candidate = new Date(publishedDate.getTime() + daysToLift * 24 * 60 * 60 * 1000)
+  const now = new Date()
+  return new Date(Math.min(now.getTime(), candidate.getTime())).toISOString()
+}
+
+const calculateEstimatedRevenue = (views: number, likes: number, comments: number) => {
+  if (views <= 0) {
+    return 0
+  }
+
+  const likeRate = likes / views
+  const commentRate = comments / views
+  const engagementBoost = Math.min(2.8, likeRate * 22 + commentRate * 90)
+  const estimatedRpm = Math.min(10, Math.max(2.25, 2.25 + engagementBoost))
+  return Math.round((views / 1000) * estimatedRpm)
+}
 
 const parseVideoLengthMinutes = (videoLength: string) => {
   const values = videoLength
@@ -220,14 +330,40 @@ const countWords = (value: string) => value.split(/\s+/).map((part) => part.trim
 
 const countScriptWords = (script: GeneratedScript) => script.script.sections.reduce((total, section) => total + countWords(section.text), 0)
 
+const decodeHtmlEntities = (value: string) =>
+  value
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#(\d+);/g, (_, numeric: string) => {
+      const codePoint = Number.parseInt(numeric, 10)
+      if (!Number.isFinite(codePoint)) {
+        return ''
+      }
+      return String.fromCodePoint(codePoint)
+    })
+
 const sanitizeTextOutput = (value: string) => {
-  let sanitized = value.replace(/[\u2014\u2013]/g, ', ')
+  let sanitized = decodeHtmlEntities(value)
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+    .replace(/[\u200b-\u200d\ufeff]/g, '')
+    .replace(/\uFFFD/g, '')
+    .replace(/[\u2014\u2013]/g, ' - ')
+
   for (const phrase of BANNED_PHRASES) {
     const pattern = new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
     sanitized = sanitized.replace(pattern, '')
   }
+
   return normalizeWhitespace(sanitized)
 }
+
+const sanitizeTitleOutput = (value: string) =>
+  sanitizeTextOutput(value)
+    .replace(/^[\s"'`“”‘’]+|[\s"'`“”‘’]+$/g, '')
+    .replace(/^\s*(?:\d+[\).:\]-]\s*|[-*•]+\s*)/g, '')
 
 const normalizeOutlierStatus = (value: unknown): OutlierStatus => {
   const normalized = asString(value).toLowerCase()
@@ -287,7 +423,7 @@ const toOutlierStatus = (score: number): OutlierStatus => {
 }
 
 const normalizeIdea = (idea: Partial<VideoIdea>): VideoIdea | null => {
-  const title = sanitizeTextOutput(asString(idea.title))
+  const title = sanitizeTitleOutput(asString(idea.title))
   const concept = sanitizeTextOutput(asString(idea.concept))
   const whyItWorks = sanitizeTextOutput(asString(idea.why_it_works))
   const hookAngle = sanitizeTextOutput(asString(idea.hook_angle))
@@ -326,8 +462,8 @@ const normalizeContext = (body: IdeasRequest): NormalizedContext => {
 
   const exampleChannels =
     exampleChannelsRaw.length && !exampleChannelsRaw.some((channel) => hasPlaceholder(channel))
-      ? exampleChannelsRaw
-      : ['Vox', 'MagnatesMedia', 'Johnny Harris']
+      ? exampleChannelsRaw.filter((channel) => isAllowedYouTubeVideoUrl(channel))
+      : []
 
   const userNotes = withDefault(
     asString((source as { userNotes?: unknown }).userNotes || (channelProfileObject as { userNotes?: unknown }).userNotes),
@@ -379,8 +515,28 @@ const buildResearchCacheKey = (context: NormalizedContext) => {
   return segments.join('|') || 'general|ideas|broad audience|long-form'
 }
 
-const buildSearchQuery = (context: NormalizedContext) =>
-  normalizeWhitespace(`${context.niche} ${context.videoTopicIdea} ${context.targetAudience} ${context.videoFormat}`)
+type SearchPlan = {
+  query: string
+  order: 'relevance' | 'viewCount'
+  publishedAfter?: string
+}
+
+const buildSearchPlans = (context: NormalizedContext): SearchPlan[] => {
+  const recentPublishedAfter = new Date(Date.now() - RESEARCH_WINDOW_YEARS * 365 * 24 * 60 * 60 * 1000).toISOString()
+  const candidateQueries = [
+    normalizeWhitespace(`${context.niche} ${context.videoTopicIdea} ${context.targetAudience} ${context.videoFormat}`),
+    normalizeWhitespace(`${context.niche} ${context.videoTopicIdea} documentary`),
+    normalizeWhitespace(`${context.videoTopicIdea} ${context.niche}`),
+    normalizeWhitespace(`${context.videoTopicIdea}`),
+  ].filter(Boolean)
+
+  const uniqueQueries = [...new Set(candidateQueries)]
+  return uniqueQueries.slice(0, 4).map((query, index) => ({
+    query,
+    order: index < 2 ? 'relevance' : 'viewCount',
+    publishedAfter: index === 0 ? recentPublishedAfter : undefined,
+  }))
+}
 
 const cleanupResearchCache = () => {
   const now = Date.now()
@@ -421,7 +577,7 @@ const getCachedResearch = (cacheKey: string) => {
   let bestScore = 0
   for (const entry of RESEARCH_CACHE.values()) {
     const score = getKeySimilarity(cacheKey, entry.cacheKey)
-    if (score >= 0.8 && score > bestScore) {
+    if (score >= 0.93 && score > bestScore) {
       best = entry
       bestScore = score
     }
@@ -645,68 +801,124 @@ const fetchYouTubeResearch = async (
   context: NormalizedContext,
   apiKey: string,
 ): Promise<{ videos: ResearchVideo[]; youtubeRequestCount: number }> => {
-  const query = buildSearchQuery(context)
-  const publishedAfter = new Date(Date.now() - RESEARCH_WINDOW_YEARS * 365 * 24 * 60 * 60 * 1000).toISOString()
-  const searchUrl = new URL('https://www.googleapis.com/youtube/v3/search')
-  searchUrl.searchParams.set('part', 'snippet')
-  searchUrl.searchParams.set('type', 'video')
-  searchUrl.searchParams.set('order', 'relevance')
-  searchUrl.searchParams.set('maxResults', String(SEARCH_RESULTS_PER_QUERY))
-  searchUrl.searchParams.set('publishedAfter', publishedAfter)
-  searchUrl.searchParams.set(
-    'fields',
-    'items(id(videoId),snippet(title,description,channelTitle,publishedAt,thumbnails(default(url),medium(url),high(url))))',
-  )
-  searchUrl.searchParams.set('q', query)
-  searchUrl.searchParams.set('key', apiKey)
+  const merged = new Map<
+    string,
+    Omit<ResearchVideo, 'views' | 'likes' | 'comments' | 'duration' | 'viewsPerDay' | 'outlierSignals' | 'outlierStatus'>
+  >()
+  let youtubeRequestCount = 0
+  let lastSearchError: Error | null = null
 
-  const searchJson = await fetchJsonWithTimeout<{ items?: YouTubeSearchItem[] }>(searchUrl)
-  const items = Array.isArray(searchJson.items) ? searchJson.items : []
-
-  const merged = new Map<string, Omit<ResearchVideo, 'views' | 'likes' | 'comments' | 'duration' | 'viewsPerDay' | 'outlierSignals' | 'outlierStatus'>>()
-
-  for (const item of items) {
-    const videoId = asString(item.id?.videoId)
-    if (!videoId || merged.has(videoId)) {
-      continue
+  for (const plan of buildSearchPlans(context)) {
+    if (merged.size >= MAX_RESEARCH_RESULTS) {
+      break
     }
 
-    const snippet = item.snippet || {}
-    const thumbnail = asString(snippet.thumbnails?.high?.url || snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url)
+    const searchUrl = new URL('https://www.googleapis.com/youtube/v3/search')
+    searchUrl.searchParams.set('part', 'snippet')
+    searchUrl.searchParams.set('type', 'video')
+    searchUrl.searchParams.set('order', plan.order)
+    searchUrl.searchParams.set('maxResults', String(SEARCH_RESULTS_PER_QUERY))
+    if (plan.publishedAfter) {
+      searchUrl.searchParams.set('publishedAfter', plan.publishedAfter)
+    }
+    searchUrl.searchParams.set(
+      'fields',
+      'items(id(videoId),snippet(title,description,channelTitle,publishedAt,thumbnails(default(url),medium(url),high(url))))',
+    )
+    searchUrl.searchParams.set('q', plan.query)
+    searchUrl.searchParams.set('key', apiKey)
 
-    merged.set(videoId, {
-      videoId,
-      title: asString(snippet.title),
-      description: asString(snippet.description),
-      channelTitle: asString(snippet.channelTitle),
-      publishedAt: toIsoDate(snippet.publishedAt),
-      thumbnail,
-    })
+    try {
+      const searchJson = await fetchJsonWithTimeout<{ items?: YouTubeSearchItem[] }>(searchUrl)
+      youtubeRequestCount += 1
+      const items = Array.isArray(searchJson.items) ? searchJson.items : []
+
+      for (const item of items) {
+        const videoId = asString(item.id?.videoId)
+        if (!videoId || merged.has(videoId)) {
+          continue
+        }
+
+        const snippet = item.snippet || {}
+        const thumbnail = asString(
+          snippet.thumbnails?.high?.url || snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url,
+        )
+
+        merged.set(videoId, {
+          videoId,
+          title: asString(snippet.title),
+          description: asString(snippet.description),
+          channelTitle: asString(snippet.channelTitle),
+          publishedAt: toIsoDate(snippet.publishedAt),
+          thumbnail,
+        })
+      }
+    } catch (error) {
+      lastSearchError = error instanceof Error ? error : new Error('YouTube search failed.')
+      continue
+    }
   }
 
-  const baseVideos = [...merged.values()].slice(0, MAX_RESEARCH_RESULTS).map((base) => ({
-    ...base,
-    views: 0,
-    likes: 0,
-    comments: 0,
-    duration: '',
-    viewsPerDay: 0,
-  }))
-
-  if (baseVideos.length < MIN_RESEARCH_RESULTS) {
-    throw new Error('YouTube research returned too few results to score outliers reliably.')
+  const baseVideos = [...merged.values()].slice(0, MAX_RESEARCH_RESULTS)
+  if (!baseVideos.length) {
+    if (lastSearchError) {
+      throw lastSearchError
+    }
+    throw new Error('YouTube research returned no matching videos.')
   }
 
+  const detailsUrl = new URL('https://www.googleapis.com/youtube/v3/videos')
+  detailsUrl.searchParams.set('part', 'snippet,statistics,contentDetails')
+  detailsUrl.searchParams.set('id', baseVideos.map((video) => video.videoId).join(','))
+  detailsUrl.searchParams.set(
+    'fields',
+    'items(id,snippet(publishedAt),statistics(viewCount,likeCount,commentCount),contentDetails(duration))',
+  )
+  detailsUrl.searchParams.set('key', apiKey)
+
+  const detailsJson = await fetchJsonWithTimeout<{ items?: YouTubeVideoDetailsItem[] }>(detailsUrl)
+  youtubeRequestCount += 1
+  const detailsItems = Array.isArray(detailsJson.items) ? detailsJson.items : []
+  const detailsById = new Map<string, YouTubeVideoDetailsItem>()
+  for (const item of detailsItems) {
+    const id = asString(item.id)
+    if (id) {
+      detailsById.set(id, item)
+    }
+  }
+
+  const enrichedVideos = baseVideos.map((video) => {
+    const details = detailsById.get(video.videoId)
+    const views = parsePositiveInt(details?.statistics?.viewCount)
+    const likes = parsePositiveInt(details?.statistics?.likeCount)
+    const comments = parsePositiveInt(details?.statistics?.commentCount)
+    const publishedAt = toIsoDate(details?.snippet?.publishedAt) || video.publishedAt
+    const daysSincePublished = getDaysSincePublished(publishedAt)
+    const viewsPerDay = views > 0 ? Math.round(views / daysSincePublished) : 0
+
+    return {
+      ...video,
+      publishedAt,
+      views,
+      likes,
+      comments,
+      duration: asString(details?.contentDetails?.duration),
+      viewsPerDay,
+    }
+  })
+
+  const maxViewsPerDay = Math.max(...enrichedVideos.map((video) => video.viewsPerDay), 1)
   const titleTermCounts = countTerms(baseVideos.map((video) => video.title))
   const frequentTerms = new Set([...titleTermCounts.entries()].filter(([, count]) => count >= 3).map(([term]) => term))
 
-  const scored = baseVideos.map((video) => {
+  const scored = enrichedVideos.map((video) => {
     const relevance = getRelevanceScore(context, video.title, video.description)
     const packaging = getTitlePackagingScore(video.title)
     const novelty = getNoveltyScore(video.title, frequentTerms)
     const recency = getRecencyScore(video.publishedAt)
-    const performance = 0
+    const performance = Math.max(0, Math.min(22, Math.round((video.viewsPerDay / maxViewsPerDay) * 22)))
     const total = Math.max(0, Math.min(100, Math.round(relevance + packaging + novelty + recency)))
+    const finalTotal = Math.max(0, Math.min(100, total + performance))
 
     return {
       ...video,
@@ -716,15 +928,15 @@ const fetchYouTubeResearch = async (
         novelty,
         recency,
         performance,
-        total,
+        total: finalTotal,
       },
-      outlierStatus: toOutlierStatus(total),
+      outlierStatus: toOutlierStatus(finalTotal),
     }
   })
 
   return {
     videos: scored.sort((a, b) => b.outlierSignals.total - a.outlierSignals.total).slice(0, MAX_RESEARCH_RESULTS),
-    youtubeRequestCount: 1,
+    youtubeRequestCount,
   }
 }
 
@@ -848,6 +1060,98 @@ const selectIdea = (ideas: VideoIdea[]) => {
   })[0]
 }
 
+const toIdeaInspirationVideo = (video: ResearchVideo): IdeaInspirationVideo => ({
+  videoId: video.videoId,
+  title: sanitizeTitleOutput(video.title),
+  channelTitle: sanitizeTextOutput(video.channelTitle),
+  thumbnail: video.thumbnail || `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`,
+  publishedAt: video.publishedAt,
+  views: video.views,
+  likes: video.likes,
+  comments: video.comments,
+  estimatedRevenue: calculateEstimatedRevenue(video.views, video.likes, video.comments),
+  videoUrl: `https://www.youtube.com/watch?v=${video.videoId}`,
+  viralLiftDate: calculateViralLiftDate(video.publishedAt, video.viewsPerDay),
+  angleLabel: findContentAngle(video.title, video.description),
+})
+
+const attachInspirationVideosToIdeas = (ideas: VideoIdea[], videos: ResearchVideo[]): VideoIdea[] => {
+  if (!videos.length) {
+    return ideas
+  }
+
+  const usageByVideoId = new Map<string, number>()
+  const primaryVideoIds = new Set<string>()
+  const MAX_VIDEOS_PER_IDEA = 3
+
+  return ideas.map((idea) => {
+    const ideaTokens = new Set(tokenize(`${idea.title} ${idea.concept} ${idea.hook_angle}`))
+    const ranked = [...videos].sort((a, b) => {
+      const aTokens = tokenize(`${a.title} ${a.description}`)
+      const bTokens = tokenize(`${b.title} ${b.description}`)
+      const aOverlap = aTokens.filter((token) => ideaTokens.has(token)).length
+      const bOverlap = bTokens.filter((token) => ideaTokens.has(token)).length
+
+      const aUsagePenalty = (usageByVideoId.get(a.videoId) || 0) * 8
+      const bUsagePenalty = (usageByVideoId.get(b.videoId) || 0) * 8
+      const aScore = aOverlap * 18 + a.outlierSignals.total * 0.7 + Math.min(30, a.viewsPerDay / 1200) - aUsagePenalty
+      const bScore = bOverlap * 18 + b.outlierSignals.total * 0.7 + Math.min(30, b.viewsPerDay / 1200) - bUsagePenalty
+
+      return bScore - aScore
+    })
+
+    const primaryCandidate = ranked.find((candidate) => !primaryVideoIds.has(candidate.videoId)) || ranked[0]
+    if (!primaryCandidate) {
+      return idea
+    }
+
+    const selectedVideos: ResearchVideo[] = [primaryCandidate]
+    const usedVideoIds = new Set([primaryCandidate.videoId])
+    const usedAngles = new Set([findContentAngle(primaryCandidate.title, primaryCandidate.description)])
+
+    for (const candidate of ranked) {
+      if (selectedVideos.length >= MAX_VIDEOS_PER_IDEA) {
+        break
+      }
+      if (usedVideoIds.has(candidate.videoId)) {
+        continue
+      }
+      const angle = findContentAngle(candidate.title, candidate.description)
+      if (usedAngles.has(angle)) {
+        continue
+      }
+      selectedVideos.push(candidate)
+      usedVideoIds.add(candidate.videoId)
+      usedAngles.add(angle)
+    }
+
+    if (selectedVideos.length < MAX_VIDEOS_PER_IDEA) {
+      for (const candidate of ranked) {
+        if (selectedVideos.length >= MAX_VIDEOS_PER_IDEA) {
+          break
+        }
+        if (usedVideoIds.has(candidate.videoId)) {
+          continue
+        }
+        selectedVideos.push(candidate)
+        usedVideoIds.add(candidate.videoId)
+      }
+    }
+
+    for (const candidate of selectedVideos) {
+      usageByVideoId.set(candidate.videoId, (usageByVideoId.get(candidate.videoId) || 0) + 1)
+    }
+    primaryVideoIds.add(primaryCandidate.videoId)
+
+    const normalizedVideos = selectedVideos.map(toIdeaInspirationVideo)
+    return {
+      ...idea,
+      inspirationVideos: normalizedVideos,
+      inspirationVideo: normalizedVideos[0],
+    }
+  })
+}
+
 const buildScriptCorrectionPrompt = (
   context: NormalizedContext,
   selectedTitle: string,
@@ -909,7 +1213,7 @@ const normalizeTitles = (titles: unknown, selectedIdea: VideoIdea): string[] => 
   const input = Array.isArray(titles) ? titles : []
   const safe = input
     .filter((title): title is string => typeof title === 'string')
-    .map((title) => sanitizeTextOutput(title))
+    .map((title) => sanitizeTitleOutput(title))
     .filter((title) => {
       const lower = title.toLowerCase()
       return title && !BANNED_TITLE_STARTS.some((start) => lower.startsWith(start))
@@ -920,7 +1224,7 @@ const normalizeTitles = (titles: unknown, selectedIdea: VideoIdea): string[] => 
     return deduped.slice(0, 3)
   }
 
-  const base = sanitizeTextOutput(selectedIdea.title)
+  const base = sanitizeTitleOutput(selectedIdea.title)
   const fallback = [
     `${base}: The Hidden Leverage Point`,
     `The Shift Behind ${base}`,
@@ -1072,7 +1376,7 @@ const normalizeScript = (raw: unknown, selectedTitle: string, outline: OutlineSe
     return fallback
   }
 
-  const title = sanitizeTextOutput(asString((script as { title?: unknown }).title)) || selectedTitle
+  const title = sanitizeTitleOutput(asString((script as { title?: unknown }).title)) || sanitizeTitleOutput(selectedTitle)
   const sections = Array.isArray((script as { sections?: unknown[] }).sections) ? (script as { sections: unknown[] }).sections : []
 
   const indexed = new Map<string, string>()
@@ -1273,6 +1577,7 @@ export default async (req: Request) => {
       ideas = [...ideas, ...fallbackIdeas(context, researchVideos)].slice(0, 3)
     }
     ideas = rankIdeas(ideas)
+    ideas = attachInspirationVideosToIdeas(ideas, researchVideos)
 
     const selectedIdea = selectIdea(ideas)
     const lightweightTitles = normalizeTitles([], selectedIdea)
