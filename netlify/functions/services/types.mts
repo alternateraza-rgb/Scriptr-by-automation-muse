@@ -22,6 +22,34 @@ export type VideoIdea = {
   hook_angle: string
   click_score: 'low' | 'medium' | 'high'
   outlierStatus?: 'Low' | 'Medium' | 'High'
+  inspirationVideos?: Array<{
+    videoId: string
+    title: string
+    channelTitle: string
+    thumbnail: string
+    publishedAt: string
+    views: number
+    likes: number
+    comments: number
+    estimatedRevenue?: number
+    videoUrl: string
+    viralLiftDate?: string
+    angleLabel?: string
+  }>
+  inspirationVideo?: {
+    videoId: string
+    title: string
+    channelTitle: string
+    thumbnail: string
+    publishedAt: string
+    views: number
+    likes: number
+    comments: number
+    estimatedRevenue?: number
+    videoUrl: string
+    viralLiftDate?: string
+    angleLabel?: string
+  }
 }
 
 export type TitlePayload = {
