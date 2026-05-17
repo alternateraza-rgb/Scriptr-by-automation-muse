@@ -25,9 +25,10 @@ type RunAiInput = {
   systemPrompt: string
   userPrompt: string
   temperature?: number
+  reasoningEffort?: 'low' | 'medium' | 'high'
 }
 
-const callOpenAI = async ({ systemPrompt, userPrompt, temperature = 0.8 }: RunAiInput) => {
+const callOpenAI = async ({ systemPrompt, userPrompt, temperature = 0.8, reasoningEffort = 'medium' }: RunAiInput) => {
   const apiKey = getEnv('OPENAI_API_KEY')
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY is not configured.')
@@ -38,9 +39,10 @@ const callOpenAI = async ({ systemPrompt, userPrompt, temperature = 0.8 }: RunAi
     timeout: 45000,
   })
 
-  const model = getEnv('AI_MODEL_OPENAI') || 'gpt-4.1-mini'
+  const model = getEnv('AI_MODEL_OPENAI') || 'gpt-5-mini'
   const response = await client.chat.completions.create({
     model,
+    reasoning_effort: reasoningEffort,
     temperature,
     response_format: { type: 'json_object' },
     messages: [

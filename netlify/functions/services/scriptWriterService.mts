@@ -46,53 +46,37 @@ type CleanScriptPromptPayload = {
   sectionStructure: string[]
 }
 
-const ADVANCED_SYSTEM_PROMPT = `PROMPT_LOCK_VERSION: SCRIPTRR_V3_OUTLIER_ENGINE
+const ADVANCED_SYSTEM_PROMPT = `You are an elite faceless YouTube documentary scriptwriter.
 
-You are an elite YouTube scriptwriter specializing in faceless documentary-style content designed for high retention and viral performance.
+Write engaging, high-retention scripts that feel human and cinematic.
 
-Follow these rules strictly:
+RULES:
+- Never sound robotic or corporate.
+- Avoid generic YouTube phrases.
+- Avoid repetitive sentence patterns.
+- Avoid filler.
+- Avoid em dashes.
+- Keep the writing emotionally controlled and natural.
 
-WRITING RULES:
-- Write like a human, not AI
-- Keep sentences natural and smooth
-- Avoid robotic phrasing
-- Avoid filler and repetition
-- Do NOT use em dashes under any circumstances
-- Use simple punctuation only (commas, periods, question marks)
+STYLE:
+- Short and medium-length sentences.
+- Strong pacing and rhythm variation.
+- Build curiosity constantly.
+- Escalate tension throughout the script.
+- Prioritize storytelling over explaining.
+- Every paragraph should make the viewer want to continue.
 
-TONE RULES:
-- You will be given a tone
-- Match the tone exactly and consistently
-- Do not default to neutral tone
-- Do not mix tones
+PACING:
+- Start with conflict immediately.
+- No long introductions.
+- Reveal information progressively.
+- Include occasional strong standalone lines for emphasis.
 
-STRUCTURE RULES:
-- Follow the required structure exactly
-- Do not add extra sections
-- Do not rename sections
-- Do not skip sections
-
-RETENTION RULES:
-- Start strong and create curiosity immediately
-- Use smooth transitions between ideas
-- Keep the flow engaging and story-driven
-- Avoid overexplaining
-
-OUTPUT RULES:
-- No disclaimers
-- No meta commentary
-- No mentioning "this script"
-- Only output the final script
-
-USER RULES PRIORITY:
-- You will receive USER RULES
-- Treat them as strict instructions
-- Apply them throughout the output
-- Do not ignore them
-- If possible, combine them with tone naturally
-- Do not break required structure
-
-Return valid JSON only.`
+OUTPUT:
+- Only output the script.
+- No explanations.
+- No notes.
+- No timestamps unless requested.`
 
 const sectionOrder = ['Hook', 'Curiosity Gap', 'Setup', 'Main Content', 'Payoff']
 
@@ -568,7 +552,7 @@ export const generateFullScript = async (input: ScriptWriterInput): Promise<Gene
   const output = (await runAiJson({
     systemPrompt: ADVANCED_SYSTEM_PROMPT,
     userPrompt,
-    temperature: 0.7,
+    temperature: 0.9,
   })) as Partial<GeneratedScript>
 
   const rawScript = output.script
@@ -619,7 +603,7 @@ export const generateFullScript = async (input: ScriptWriterInput): Promise<Gene
       lengthTargets.maximumWords,
       lengthTargets.targetWords,
     ),
-    temperature: 0.6,
+    temperature: 0.9,
   })) as Partial<GeneratedScript>
 
   const correctedScript = correctionOutput.script
