@@ -68,6 +68,11 @@ export type GeneratedScript = {
   }
 }
 
+export type ScriptChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export type ScriptPolishRequest = {
   script: string
   mode: 'shorten' | 'expand' | 'retention' | 'simplify' | 'intensify'

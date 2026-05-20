@@ -357,6 +357,15 @@ const sanitizeTextOutput = (value: string) => {
     sanitized = sanitized.replace(pattern, '')
   }
 
+  sanitized = sanitized
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/^\s*\[\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:[-,]\s*\d{1,2}:\d{2}(?::\d{2})?)?\s*\]\s*/i, '')
+        .replace(/^\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:[-,]\s*\d{1,2}:\d{2}(?::\d{2})?)?\s+/, ''),
+    )
+    .join('\n')
+
   return normalizeWhitespace(sanitized)
 }
 
@@ -1171,6 +1180,8 @@ Strict rewrite instructions:
 - Rewrite for a final word count between ${minimumWords} and ${maximumWords} words.
 - Target close to ${targetWords} words.
 - Do not use em dashes.
+- Do not include visible timestamps, time ranges, timecodes, or beat markers.
+- Use runtime targets internally only for pacing and depth.
 - Keep tone and audience fit exactly aligned with the variables.
 
 Return valid JSON only in this exact format:
@@ -1333,6 +1344,7 @@ Strict generation instructions:
 - NO generic phrasing.
 - NO filler.
 - NO repetition.
+- Use runtime targets internally only. Do not include visible timestamps, time ranges, timecodes, or beat markers like [2:35-2:40], 0:00 Intro, or 3:20 Hook.
 - Never use these phrases: ${BANNED_PHRASES.join('; ')}.
 
 Return valid JSON only in this exact format:

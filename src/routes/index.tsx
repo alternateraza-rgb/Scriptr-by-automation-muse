@@ -6,7 +6,9 @@ import {
   generateIdeas as requestIdeas,
   generateOutline as requestOutline,
   generateScript as requestScript,
+  generateChatScript as requestChatScript,
   polishScript as requestPolishScript,
+  sendScriptChatMessage,
 } from '../services/scriptGenerationService'
 import type {
   ChannelContext,
@@ -40,8 +42,10 @@ import {
   LayoutDashboard,
   Lightbulb,
   Menu,
+  MessageSquare,
   PenSquare,
   Play,
+  Send,
   Settings2,
   Sparkles,
   Target,
@@ -49,7 +53,7 @@ import {
 } from 'lucide-react'
 
 type Screen = 'landing' | 'signin' | 'signup' | 'forgot' | 'reset' | 'onboarding' | 'app'
-type NavKey = 'dashboard' | 'generate' | 'scripts' | 'profiles' | 'usage' | 'billing' | 'settings'
+type NavKey = 'dashboard' | 'generate' | 'chat' | 'scripts' | 'profiles' | 'usage' | 'billing' | 'settings'
 type WorkflowStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
 type ChannelProfile = {
@@ -100,6 +104,16 @@ type SavedScript = {
 }
 
 type ScriptDetailView = 'title' | 'outline' | 'full'
+type ScriptChatMessage = { id: string; role: 'user' | 'assistant'; content: string }
+type ChatSuggestion = { title: string; angle: string; context: string }
+type ChatOutlinePreview = {
+  title: string
+  hook: string
+  structure: string
+  retention: string
+  tone: string
+  payoff: string
+}
 
 type OnboardingState = {
   channelName: string
@@ -202,6 +216,7 @@ const INITIAL_SCRIPTS: SavedScript[] = []
 
 const ONBOARDING_TOTAL_STEPS = 11
 const DASHBOARD_PATH = '/dashboard'
+const SCRIPT_CHAT_STORAGE_KEY = 'scriptr.scriptChat.v1'
 
 const WORKFLOW_STEPS: Array<{ id: WorkflowStep; label: string }> = [
   { id: 1, label: 'Channel Context' },
@@ -216,6 +231,7 @@ const WORKFLOW_STEPS: Array<{ id: WorkflowStep; label: string }> = [
 const NAV_ITEMS: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'generate', label: 'Generate', icon: Sparkles },
+  { key: 'chat', label: 'Chat', icon: MessageSquare },
   { key: 'scripts', label: 'Scripts', icon: FileText },
   { key: 'profiles', label: 'Channel Profile', icon: BookOpen },
   { key: 'usage', label: 'Analytics', icon: BarChart3 },
@@ -269,6 +285,57 @@ const IDEA_STATS_TIPS = [
 
 const getPrimaryNiche = (onboarding: OnboardingState) => onboarding.customNiche || onboarding.niche || 'General'
 const getPrimaryTone = (onboarding: OnboardingState) => onboarding.customTone || onboarding.tone || 'Conversational'
+const cleanChatTitle = (value: string) =>
+  value
+    .replace(/^\s*idea\s*:\s*/i, '')
+    .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '')
+    .replace(/^(?:title|idea|angle)\s*:\s*/i, '')
+    .replace(/^["'“”]+|["'“”]+$/g, '')
+    .trim()
+
+const getChatSuggestions = (content: string): ChatSuggestion[] => {
+  const ideaLines = content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /^idea\s*:/i.test(line))
+    .map((line) => {
+      const cleanLine = cleanChatTitle(line)
+      const [rawTitle, ...angleParts] = cleanLine.split(/\s+[—-]\s+/)
+      const title = cleanChatTitle(rawTitle || cleanLine)
+      const angle = angleParts.join(' - ').trim()
+      return title.length > 6 ? { title, angle, context: content } : null
+    })
+    .filter((suggestion): suggestion is ChatSuggestion => Boolean(suggestion))
+
+  if (ideaLines.length) {
+    return ideaLines.slice(0, 6)
+  }
+
+  const suggestions = content
+    .split('\n')
+    .map((line) => cleanChatTitle(line))
+    .filter((line) => line.length > 10 && line.length < 110)
+    .filter((line) => /(?:why|how|the|what|inside|secret|truth|rise|fall|million|billion|story|documentary)/i.test(line))
+    .filter((line) => !/[?]$/.test(line))
+    .map((title) => ({ title, angle: 'Open the strongest tension, then escalate toward a clear viewer payoff.', context: content }))
+
+  return suggestions.slice(0, 4)
+}
+
+const buildChatOutlinePreview = (suggestion: ChatSuggestion, channelContext: ChannelContext): ChatOutlinePreview => ({
+  title: suggestion.title,
+  hook: `Open on the sharpest contradiction behind "${suggestion.title}" before any setup.`,
+  structure: suggestion.angle || 'Cold open, fast context, escalating turns, midpoint reveal, clean final argument.',
+  retention: 'Plant open loops every 60-90 seconds, use pattern breaks before context-heavy sections, and tease the next reveal before each transition.',
+  tone: channelContext.tone || 'Cinematic, specific, and restrained',
+  payoff: 'End with a clear viewer takeaway that makes the title feel earned instead of merely explained.',
+})
+
+const chatParagraphs = (content: string) =>
+  content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
 const toCsv = (values: string[] | undefined) =>
   values && values.length
     ? values
@@ -898,6 +965,13 @@ export function Home() {
   const [selectedTitle, setSelectedTitle] = useState('')
   const [outlineBlocks, setOutlineBlocks] = useState<OutlineSection[]>([])
   const [scriptDraft, setScriptDraft] = useState<GeneratedScript | null>(null)
+  const [scriptChatMessages, setScriptChatMessages] = useState<ScriptChatMessage[]>([])
+  const [scriptChatInput, setScriptChatInput] = useState('')
+  const [scriptChatLoading, setScriptChatLoading] = useState(false)
+  const [chatScriptLoading, setChatScriptLoading] = useState(false)
+  const [chatScriptError, setChatScriptError] = useState('')
+  const [chatGeneratedScript, setChatGeneratedScript] = useState<GeneratedScript | null>(null)
+  const [selectedChatOutline, setSelectedChatOutline] = useState<ChatOutlinePreview | null>(null)
   const [polishMode, setPolishMode] = useState<'shorten' | 'expand' | 'retention' | 'simplify' | 'intensify'>('retention')
   const [polishedScriptText, setPolishedScriptText] = useState('')
   const [polishChat, setPolishChat] = useState<Array<{ id: string; role: 'user' | 'assistant'; message: string }>>([])
@@ -923,6 +997,44 @@ export function Home() {
 
     return () => window.clearInterval(interval)
   }, [isGenerating, loadingSubMessages])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    try {
+      const stored = window.localStorage.getItem(SCRIPT_CHAT_STORAGE_KEY)
+      if (!stored) {
+        return
+      }
+
+      const parsed = JSON.parse(stored)
+      if (!Array.isArray(parsed)) {
+        return
+      }
+
+      const messages = parsed
+        .map((message) => ({
+          id: typeof message?.id === 'string' ? message.id : `chat-${Date.now()}`,
+          role: message?.role === 'assistant' ? 'assistant' : 'user',
+          content: typeof message?.content === 'string' ? message.content : '',
+        }))
+        .filter((message): message is ScriptChatMessage => Boolean(message.content))
+
+      setScriptChatMessages(messages)
+    } catch {
+      window.localStorage.removeItem(SCRIPT_CHAT_STORAGE_KEY)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    window.localStorage.setItem(SCRIPT_CHAT_STORAGE_KEY, JSON.stringify(scriptChatMessages))
+  }, [scriptChatMessages])
 
   const primaryProfile = useMemo(
     () => profiles.find((profile) => profile.isDefault) || profiles[0] || buildPrimaryProfile(onboarding),
@@ -2004,6 +2116,79 @@ export function Home() {
       setWorkflowStep(5)
       openToast('Full script generated.')
     })
+  }
+
+  const sendScriptChat = async (event?: React.FormEvent) => {
+    event?.preventDefault()
+    const content = scriptChatInput.trim()
+    if (!content || scriptChatLoading) {
+      return
+    }
+
+    const userMessage: ScriptChatMessage = { id: `user-${Date.now()}`, role: 'user', content }
+    const nextMessages = [...scriptChatMessages, userMessage]
+    setScriptChatMessages(nextMessages)
+    setScriptChatInput('')
+    setChatScriptError('')
+    setScriptChatLoading(true)
+
+    try {
+      const response = await sendScriptChatMessage({
+        messages: nextMessages,
+        channelContext,
+      })
+      setScriptChatMessages((current) => [
+        ...current,
+        { id: `assistant-${Date.now()}`, role: 'assistant', content: response.message },
+      ])
+    } catch (error) {
+      setChatScriptError(getErrorMessage(error, 'Chat failed.'))
+    } finally {
+      setScriptChatLoading(false)
+    }
+  }
+
+  const generateFinalScriptFromChat = async () => {
+    if (!scriptChatMessages.length || chatScriptLoading) {
+      openToast('Start the chat first.')
+      return
+    }
+
+    setChatScriptError('')
+    setChatScriptLoading(true)
+    setActiveNav('scripts')
+    try {
+      const strategyMessages = selectedChatOutline
+        ? [
+            ...scriptChatMessages,
+            {
+              id: `selected-outline-${Date.now()}`,
+              role: 'user' as const,
+              content: `Generate the full script from this selected idea.\nTitle: ${selectedChatOutline.title}\nHook: ${selectedChatOutline.hook}\nStructure: ${selectedChatOutline.structure}\nRetention: ${selectedChatOutline.retention}\nTone: ${selectedChatOutline.tone}\nPayoff: ${selectedChatOutline.payoff}`,
+            },
+          ]
+        : scriptChatMessages
+      const data = await requestChatScript({
+        messages: strategyMessages,
+        channelContext,
+      })
+      setChatGeneratedScript(data)
+      setScriptDraft(data)
+      await upsertSavedScript(data, { notify: false })
+      openToast('Final script generated from chat.')
+    } catch (error) {
+      setChatScriptError(getErrorMessage(error, 'Unable to generate the final script.'))
+    } finally {
+      setChatScriptLoading(false)
+    }
+  }
+
+  const resetScriptChat = () => {
+    setScriptChatMessages([])
+    setScriptChatInput('')
+    setChatGeneratedScript(null)
+    setChatScriptError('')
+    setSelectedChatOutline(null)
   }
 
   const sendPolishCommand = async () => {
@@ -3222,12 +3407,162 @@ export function Home() {
             </section>
           )}
 
+          {activeNav === 'chat' && (
+            <section className="script-chat-page menu-transition-surface">
+              <header className="page-header split-header">
+                <div>
+                  <h1>Script Strategy Chat</h1>
+                  <p>Answer a few sharp questions, choose an idea, then generate the script.</p>
+                </div>
+                <div className="action-row wrap">
+                  <button className="btn secondary" onClick={resetScriptChat} disabled={scriptChatLoading || chatScriptLoading}>
+                    Clear chat
+                  </button>
+                </div>
+              </header>
+
+              <section className="script-chat-layout">
+                <div className="panel glass-panel strategy-chat-panel">
+                  <div className="strategy-chat-thread">
+                    {!scriptChatMessages.length ? (
+                      <div className="empty-state compact">
+                        <MessageSquare className="empty-icon" />
+                        <h3>Start with a request</h3>
+                        <p>Try: Generate video ideas for me</p>
+                      </div>
+                    ) : (
+                      scriptChatMessages.map((message) => {
+                        const suggestions = message.role === 'assistant' ? getChatSuggestions(message.content) : []
+                        return (
+                          <article className={`strategy-message ${message.role}`} key={message.id}>
+                            <span>{message.role === 'assistant' ? 'Strategist' : 'You'}</span>
+                            {!suggestions.length && (
+                              <div className="strategy-message-copy">
+                                {chatParagraphs(message.content).map((paragraph, index) => (
+                                  <p key={`${message.id}-paragraph-${index}`}>{paragraph}</p>
+                                ))}
+                              </div>
+                            )}
+                            {suggestions.length ? (
+                              <div className="chat-title-grid" aria-label="Suggested video titles">
+                                {suggestions.map((suggestion) => (
+                                  <button
+                                    className="chat-title-tile"
+                                    key={`${message.id}-${suggestion.title}`}
+                                    type="button"
+                                    onClick={() => setSelectedChatOutline(buildChatOutlinePreview(suggestion, channelContext))}
+                                  >
+                                    <span>Video angle</span>
+                                    <strong>{suggestion.title}</strong>
+                                    {suggestion.angle && <p>{suggestion.angle}</p>}
+                                    <small>Open outline</small>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                          </article>
+                        )
+                      })
+                    )}
+                    {scriptChatLoading && (
+                      <article className="strategy-message assistant loading">
+                        <span>Strategist</span>
+                        <div className="premium-thinking" aria-label="Strategist is thinking">
+                          <i />
+                          <i />
+                          <i />
+                        </div>
+                      </article>
+                    )}
+                  </div>
+
+                  {chatScriptError && <p className="error-text">{chatScriptError}</p>}
+
+                  <form className="strategy-chat-form" onSubmit={sendScriptChat}>
+                    <textarea
+                      value={scriptChatInput}
+                      onChange={(event) => setScriptChatInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.shiftKey) {
+                          event.preventDefault()
+                          void sendScriptChat()
+                        }
+                      }}
+                      placeholder="Describe the video idea, audience, tone, or a rough hook..."
+                      rows={3}
+                    />
+                    <button className="icon-btn send-chat-btn" type="submit" disabled={!scriptChatInput.trim() || scriptChatLoading}>
+                      <Send />
+                    </button>
+                  </form>
+                </div>
+
+                <aside className="panel glass-panel chat-script-preview">
+                  <h3>{selectedChatOutline ? 'Outline View' : 'Final Script Preview'}</h3>
+                  {selectedChatOutline ? (
+                    <div className="chat-outline-panel">
+                      <span className="chat-outline-kicker">Selected title</span>
+                      <h4>{selectedChatOutline.title}</h4>
+                      {[
+                        ['Hook', selectedChatOutline.hook],
+                        ['Structure', selectedChatOutline.structure],
+                        ['Retention moments', selectedChatOutline.retention],
+                        ['Tone', selectedChatOutline.tone],
+                        ['Payoff', selectedChatOutline.payoff],
+                      ].map(([label, value]) => (
+                        <article className="chat-outline-row" key={label}>
+                          <span>{label}</span>
+                          <p>{value}</p>
+                        </article>
+                      ))}
+                      <button
+                        className="btn primary large"
+                        onClick={generateFinalScriptFromChat}
+                        disabled={!scriptChatMessages.length || scriptChatLoading || chatScriptLoading}
+                      >
+                        {chatScriptLoading ? 'Generating...' : 'Generate Full Script'}
+                      </button>
+                    </div>
+                  ) : chatGeneratedScript ? (
+                    <div className="script-panel chat-final-script">
+                      <span className="chat-outline-kicker">Generated script</span>
+                      <h4>{chatGeneratedScript.script.title}</h4>
+                      {chatGeneratedScript.script.sections.map((section, index) => (
+                        <div key={`${section.section}-${index}`} className="outline-item script-reading-card">
+                          <h5>{section.section}</h5>
+                          <p>{section.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted-note">The polished script will appear here after the conversation has enough direction.</p>
+                  )}
+                </aside>
+              </section>
+            </section>
+          )}
+
           {activeNav === 'scripts' && (
             <section className="scripts-page menu-transition-surface">
               <header className="page-header">
                 <h1>Saved Scripts Library</h1>
                 <p>Search, filter, and manage scripts for your channel.</p>
               </header>
+
+              {chatScriptLoading && (
+                <section className="panel glass-panel chat-script-loading">
+                  <div>
+                    <span className="chat-outline-kicker">Script engine</span>
+                    <h3>Building the full script from your strategy thread</h3>
+                    <p>Turning the selected angle into a readable hook, body, retention beats, and final payoff.</p>
+                  </div>
+                  <div className="cinema-loader" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                </section>
+              )}
 
               <div className="library-toolbar panel glass-panel">
                 <input placeholder="Search scripts" />
@@ -3362,7 +3697,15 @@ export function Home() {
                         (isEditingScript ? (
                           <textarea value={fullScriptDraft} onChange={(event) => setFullScriptDraft(event.target.value)} rows={18} />
                         ) : (
-                          <pre>{selectedScript.fullScriptBody || selectedScript.script}</pre>
+                          <article className="script-reader">
+                            {(selectedScript.fullScriptBody || selectedScript.script)
+                              .split(/\n{2,}/)
+                              .map((paragraph) => paragraph.trim())
+                              .filter(Boolean)
+                              .map((paragraph, index) => (
+                                <p key={`script-reader-${index}`}>{paragraph}</p>
+                              ))}
+                          </article>
                         ))}
                     </div>
                   </div>

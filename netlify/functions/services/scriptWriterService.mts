@@ -76,7 +76,8 @@ OUTPUT:
 - Only output the script.
 - No explanations.
 - No notes.
-- No timestamps unless requested.`
+- Never include visible timestamps, time ranges, timecodes, or beat markers.
+- Use runtime targets only internally for pacing and depth.`
 
 const sectionOrder = ['Hook', 'Curiosity Gap', 'Setup', 'Main Content', 'Payoff']
 
@@ -176,6 +177,8 @@ const sanitizeGeneratedText = (value: string) => {
     .split('\n')
     .map((line) =>
       line
+        .replace(/^\s*\[\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:[-,]\s*\d{1,2}:\d{2}(?::\d{2})?)?\s*\]\s*/i, '')
+        .replace(/^\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:[-,]\s*\d{1,2}:\d{2}(?::\d{2})?)?\s+/, '')
         .replace(/[ \t]+/g, ' ')
         .replace(/\s+,/g, ',')
         .replace(/,\s*,+/g, ', ')
@@ -456,6 +459,8 @@ STYLE:
 - Keep writing natural and engaging
 - Avoid fluff
 - Do not use em dashes
+- Use the video length only as an internal pacing and word-count target
+- Do not include visible timestamps, time ranges, timecodes, or beat markers like [2:35-2:40], 0:00 Intro, or 3:20 Hook
 - Never use these banned phrases: ${BANNED_PHRASES.join('; ')}
 - Keep total word count between ${lengthTargets.minimumWords} and ${lengthTargets.maximumWords} words
 - Target close to ${lengthTargets.targetWords} words
@@ -502,6 +507,8 @@ Strict rewrite rules:
 - Keep tone aligned exactly to: ${payload.variables.tone}.
 - Apply USER RULES exactly as required: ${payload.variables.userNotes || 'No additional user rules provided.'}
 - No generic phrasing and no em dashes.
+- No visible timestamps, time ranges, timecodes, or beat markers.
+- Use runtime targets only internally for pacing and depth.
 - Keep clean paragraph spacing with one blank line between paragraphs.
 - Main Content must include 3 to 5 chapter headers in the format: Chapter 1: [Unique Title].
 
