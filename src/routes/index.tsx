@@ -43,6 +43,7 @@ import {
   Lightbulb,
   Menu,
   MessageSquare,
+  Palette,
   PenSquare,
   Play,
   Send,
@@ -53,8 +54,9 @@ import {
 } from 'lucide-react'
 
 type Screen = 'landing' | 'signin' | 'signup' | 'forgot' | 'reset' | 'onboarding' | 'app'
-type NavKey = 'dashboard' | 'generate' | 'chat' | 'scripts' | 'profiles' | 'usage' | 'billing' | 'settings'
+type NavKey = 'dashboard' | 'generate' | 'chat' | 'scripts' | 'profiles' | 'usage' | 'billing' | 'preferences' | 'settings'
 type WorkflowStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
+type AppTheme = 'crimson' | 'indigo' | 'emerald' | 'amber'
 
 type ChannelProfile = {
   id: string
@@ -217,6 +219,7 @@ const INITIAL_SCRIPTS: SavedScript[] = []
 const ONBOARDING_TOTAL_STEPS = 11
 const DASHBOARD_PATH = '/dashboard'
 const SCRIPT_CHAT_STORAGE_KEY = 'scriptr.scriptChat.v1'
+const THEME_STORAGE_KEY = 'scriptr.theme.v1'
 
 const WORKFLOW_STEPS: Array<{ id: WorkflowStep; label: string }> = [
   { id: 1, label: 'Channel Context' },
@@ -236,8 +239,49 @@ const NAV_ITEMS: { key: NavKey; label: string; icon: React.ComponentType<{ class
   { key: 'profiles', label: 'Channel Profile', icon: BookOpen },
   { key: 'usage', label: 'Analytics', icon: BarChart3 },
   { key: 'billing', label: 'Billing', icon: CreditCard },
+  { key: 'preferences', label: 'Preferences', icon: Palette },
   { key: 'settings', label: 'Settings', icon: Settings2 },
 ]
+
+const THEME_OPTIONS: Array<{
+  key: AppTheme
+  label: string
+  description: string
+  accent: string
+  gradient: string
+}> = [
+  {
+    key: 'crimson',
+    label: 'Scriptr Crimson',
+    description: 'High-contrast dark workspace with the signature red creative accent.',
+    accent: '#ff3347',
+    gradient: 'linear-gradient(135deg, #e11d2e, #ff3347)',
+  },
+  {
+    key: 'indigo',
+    label: 'Midnight Indigo',
+    description: 'Cool blues and violet highlights for late-night focused writing.',
+    accent: '#8b5cf6',
+    gradient: 'linear-gradient(135deg, #4f46e5, #8b5cf6)',
+  },
+  {
+    key: 'emerald',
+    label: 'Forest Mint',
+    description: 'Calmer green tones for planning, outlines, and analytical workflows.',
+    accent: '#34d399',
+    gradient: 'linear-gradient(135deg, #059669, #34d399)',
+  },
+  {
+    key: 'amber',
+    label: 'Solar Amber',
+    description: 'Warm gold highlights for energetic brainstorming and ideation.',
+    accent: '#f59e0b',
+    gradient: 'linear-gradient(135deg, #d97706, #f59e0b)',
+  },
+]
+
+const isAppTheme = (value: string | null): value is AppTheme =>
+  value === 'crimson' || value === 'indigo' || value === 'emerald' || value === 'amber'
 
 const TESTIMONIALS = [
   {
@@ -900,6 +944,14 @@ export function Home() {
   const [onboardingStep, setOnboardingStep] = useState(1)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [toast, setToast] = useState('')
+  const [activeTheme, setActiveTheme] = useState<AppTheme>(() => {
+    if (typeof window === 'undefined') {
+      return 'crimson'
+    }
+
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+    return isAppTheme(storedTheme) ? storedTheme : 'crimson'
+  })
 
   const [authUser, setAuthUser] = useState<{ name: string; email: string } | null>(null)
   const [authUserId, setAuthUserId] = useState<string | null>(null)
@@ -985,6 +1037,15 @@ export function Home() {
   const [retryAction, setRetryAction] = useState<null | (() => void)>(null)
   const [journeyFocused, setJourneyFocused] = useState(false)
   const onboardingSyncErrorShownRef = useRef(false)
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') {
+      return
+    }
+
+    document.documentElement.dataset.theme = activeTheme
+    window.localStorage.setItem(THEME_STORAGE_KEY, activeTheme)
+  }, [activeTheme])
 
   useEffect(() => {
     if (!isGenerating || loadingSubMessages.length < 2) {
@@ -4014,6 +4075,66 @@ export function Home() {
             </section>
           )}
 
+          {activeNav === 'preferences' && (
+            <section className="preferences-page menu-transition-surface">
+              <header className="page-header split-header">
+                <div>
+                  <h1>User Preferences</h1>
+                  <p>Personalize your workspace appearance and default creative environment.</p>
+                </div>
+                <span className="chip">Saved automatically</span>
+              </header>
+
+              <div className="content-grid two">
+                <section className="panel glass-panel preference-panel">
+                  <div>
+                    <p className="eyebrow">Appearance</p>
+                    <h3>Theme color</h3>
+                    <p>Choose a theme that fits how you like to write, review, and plan scripts.</p>
+                  </div>
+
+                  <div className="theme-choice-grid" role="radiogroup" aria-label="Theme color">
+                    {THEME_OPTIONS.map((theme) => (
+                      <button
+                        key={theme.key}
+                        type="button"
+                        className={`theme-choice-card ${activeTheme === theme.key ? 'active' : ''}`}
+                        onClick={() => setActiveTheme(theme.key)}
+                        role="radio"
+                        aria-checked={activeTheme === theme.key}
+                      >
+                        <span className="theme-swatch" style={{ background: theme.gradient }} aria-hidden="true" />
+                        <span className="theme-choice-copy">
+                          <strong>{theme.label}</strong>
+                          <small>{theme.description}</small>
+                        </span>
+                        {activeTheme === theme.key ? <Check className="icon-inline" /> : null}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="panel glass-panel preference-preview-panel">
+                  <p className="eyebrow">Preview</p>
+                  <h3>{THEME_OPTIONS.find((theme) => theme.key === activeTheme)?.label || 'Scriptr Crimson'}</h3>
+                  <p>
+                    Your selected theme updates buttons, focus states, highlights, cards, and navigation accents across the
+                    dashboard.
+                  </p>
+                  <div className="theme-preview-card">
+                    <span className="theme-preview-glow" />
+                    <div>
+                      <span className="chat-outline-kicker">Script workflow</span>
+                      <h4>Build a high-retention outline</h4>
+                      <p>Accent colors stay consistent while preserving the dark writing surface.</p>
+                    </div>
+                    <button className="btn primary">Primary action</button>
+                  </div>
+                </section>
+              </div>
+            </section>
+          )}
+
           {activeNav === 'settings' && (
             <section className="settings-page menu-transition-surface">
               <header className="page-header">
@@ -4051,6 +4172,12 @@ export function Home() {
                 <section className="panel glass-panel">
                   <h3>Preferences</h3>
                   <ul className="simple-list">
+                    <li>
+                      <span>Theme color</span>
+                      <button className="btn tiny" onClick={() => setActiveNav('preferences')}>
+                        Manage
+                      </button>
+                    </li>
                     <li>
                       <span>Email notifications</span>
                       <button className="btn tiny">Enabled</button>
