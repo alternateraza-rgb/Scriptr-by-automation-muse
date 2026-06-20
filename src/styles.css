@@ -1757,6 +1757,36 @@ label {
   gap: 0.55rem;
 }
 
+.profile-edit-form {
+  display: grid;
+  gap: 0.72rem;
+  padding: 0.82rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(24, 24, 24, 0.8), rgba(13, 13, 13, 0.86));
+}
+
+.profile-edit-form label {
+  gap: 0.38rem;
+  font-size: 0.88rem;
+}
+
+.profile-edit-form input {
+  min-height: 42px;
+}
+
+.profile-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.success-message {
+  margin: 0;
+  color: #8ff0c2;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
 .channel-profile-compare-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
