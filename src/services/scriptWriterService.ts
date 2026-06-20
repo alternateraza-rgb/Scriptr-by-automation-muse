@@ -152,6 +152,16 @@ const pollScriptGenerationJob = async (jobId: string): Promise<GeneratedScript> 
   throw new Error('Script generation is still running. Retry to resume from the latest saved section.')
 }
 
+const shouldPreserveStoredJob = (error: unknown) => {
+  const message = error instanceof Error ? error.message.toLowerCase() : ''
+  return (
+    message.includes('still running') ||
+    message.includes('network') ||
+    message.includes('failed to fetch') ||
+    message.includes('status could not be updated')
+  )
+}
+
 export async function generateScript(payload: ScriptPayload): Promise<GeneratedScript> {
   const storageKey = hashPayload(payload)
   const storedJobId = getStoredJobId(storageKey)
@@ -162,8 +172,7 @@ export async function generateScript(payload: ScriptPayload): Promise<GeneratedS
       clearStoredJobId(storageKey)
       return script
     } catch (error) {
-      const message = error instanceof Error ? error.message : ''
-      if (!message.includes('failed')) {
+      if (shouldPreserveStoredJob(error)) {
         throw error
       }
       clearStoredJobId(storageKey)
