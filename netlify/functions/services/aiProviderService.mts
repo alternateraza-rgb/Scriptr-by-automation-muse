@@ -29,6 +29,7 @@ type RunAiInput = {
   frequency_penalty?: number
   presence_penalty?: number
   reasoningEffort?: 'low' | 'medium' | 'high'
+  signal?: AbortSignal
 }
 
 const SAMPLING_PARAMS = ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty'] as const
@@ -76,6 +77,7 @@ const callOpenAI = async ({
   frequency_penalty,
   presence_penalty,
   reasoningEffort = 'medium',
+  signal,
 }: RunAiInput) => {
   const apiKey = getEnv('OPENAI_API_KEY')
   if (!apiKey) {
@@ -102,10 +104,33 @@ const callOpenAI = async ({
     ],
   })
 
-  const response = await client.chat.completions.create(requestOptions)
+  const response = await client.chat.completions.create(requestOptions, { signal })
 
   const content = response.choices[0]?.message?.content || ''
   return extractJson(typeof content === 'string' ? content : '')
 }
 
 export const runAiJson = async (input: RunAiInput) => callOpenAI(input)
+
+export class AiTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`AI request timed out after ${timeoutMs}ms.`)
+    this.name = 'AiTimeoutError'
+  }
+}
+
+export const runAiJsonWithTimeout = async (input: Omit<RunAiInput, 'signal'>, timeoutMs: number) => {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await callOpenAI({ ...input, signal: controller.signal })
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new AiTimeoutError(timeoutMs)
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+}

@@ -1,4 +1,5 @@
-import { generateFullScript } from './services/scriptGenerationService.mts'
+import { createInitialScriptGenerationProgress, toPublicScriptGenerationJob } from './services/scriptWriterService.mts'
+import { createAuthedJobClient, insertScriptGenerationJob } from './services/scriptGenerationJobStore.mts'
 import { failure, parseJsonBody, success } from './utils/response.mts'
 import type { ChannelContext, OutlineSection, VideoIdea } from './services/types.mts'
 
@@ -23,19 +24,21 @@ export default async (req: Request) => {
       return failure('Missing required payload for script generation.', 400)
     }
 
-    const data = await generateFullScript({
+    const requestPayload = {
       context: body.channelContext,
       selectedIdea: body.selectedIdea,
       selectedTitle: body.selectedTitle,
       generatedOutline: Array.isArray(body.generatedOutline) ? body.generatedOutline : Array.isArray(body.selectedOutline) ? body.selectedOutline : [],
       tone: body.tone,
       videoLength: body.videoLength,
-    })
+    }
 
-    return success({
-      script: data?.script || { title: body.selectedTitle, sections: [] },
-    })
+    const { supabase, userId } = await createAuthedJobClient(req)
+    const job = await insertScriptGenerationJob(supabase, userId, requestPayload, createInitialScriptGenerationProgress())
+
+    return success({ job: toPublicScriptGenerationJob(job) }, 202)
   } catch (err) {
-    return failure(err instanceof Error ? err.message : 'Script generation failed.')
+    console.error('[generateScript] job creation failed', { err })
+    return failure(err instanceof Error ? err.message : 'Script generation could not be started.')
   }
 }
