@@ -11,25 +11,25 @@ interface ChatMessageProps {
 
 export const ChatMessage = ({ message, isStreaming = false }: ChatMessageProps) => (
   <div
-    className={`py-6 streaming-message ${
+    className={`py-3 sm:py-4 streaming-message ${
       message.role === 'assistant'
-        ? 'bg-gradient-to-r from-orange-500/5 to-red-600/5'
+        ? 'bg-gradient-to-r from-orange-500/[0.035] to-red-600/[0.035]'
         : 'bg-transparent'
     }`}
   >
-    <div className="flex items-start w-full max-w-3xl gap-4 mx-auto">
+    <div className="flex items-start w-full max-w-2xl gap-3 px-3 mx-auto sm:px-4">
       {message.role === 'assistant' ? (
-        <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 ml-4 text-sm font-medium text-white rounded-lg bg-gradient-to-r from-orange-500 to-red-600">
+        <div className="flex items-center justify-center flex-shrink-0 w-7 h-7 text-[11px] font-semibold text-white rounded-md bg-gradient-to-r from-orange-500 to-red-600 shadow-sm shadow-orange-500/20">
           AI
         </div>
       ) : (
-        <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 text-sm font-medium text-white bg-gray-700 rounded-lg">
+        <div className="flex items-center justify-center flex-shrink-0 w-7 h-7 text-[11px] font-semibold text-white bg-gray-700 rounded-md shadow-sm shadow-black/20">
           Y
         </div>
       )}
-      <div className={`flex-1 min-w-0 mr-4 ${isStreaming ? 'streaming-cursor' : ''}`}>
+      <div className={`flex-1 min-w-0 text-sm leading-6 ${isStreaming ? 'streaming-cursor' : ''}`}>
         <ReactMarkdown
-          className="prose dark:prose-invert max-w-none"
+          className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5"
           rehypePlugins={[
             rehypeRaw,
             rehypeSanitize,
