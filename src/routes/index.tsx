@@ -987,6 +987,11 @@ export function Home() {
   const [youtubeChannelNiche, setYoutubeChannelNiche] = useState('')
   const [youtubeImportLoading, setYoutubeImportLoading] = useState(false)
   const [youtubeImportError, setYoutubeImportError] = useState('')
+  const [profileNameDraft, setProfileNameDraft] = useState('')
+  const [profileNicheDraft, setProfileNicheDraft] = useState('')
+  const [profileSaveLoading, setProfileSaveLoading] = useState(false)
+  const [profileSaveError, setProfileSaveError] = useState('')
+  const [profileSaveStatus, setProfileSaveStatus] = useState('')
   const [isYouTubeStatsOpen, setIsYouTubeStatsOpen] = useState(false)
   const [youtubeStatsLoading, setYouTubeStatsLoading] = useState(false)
   const [youtubeStatsError, setYouTubeStatsError] = useState('')
@@ -1109,6 +1114,14 @@ export function Home() {
     () => profiles.find((profile) => profile.profileSource === 'youtube'),
     [profiles],
   )
+
+  useEffect(() => {
+    setProfileNameDraft(manualProfile.channelName)
+    setProfileNicheDraft(manualProfile.niche)
+    setProfileSaveError('')
+    setProfileSaveStatus('')
+  }, [manualProfile.id, manualProfile.channelName, manualProfile.niche])
+
   const activeIdeaForStats = useMemo(
     () => (ideaStatsModalIndex === null ? null : videoIdeas[ideaStatsModalIndex] || null),
     [ideaStatsModalIndex, videoIdeas],
@@ -1176,6 +1189,11 @@ export function Home() {
     setYoutubeChannelNiche('')
     setYoutubeImportError('')
     setYoutubeImportLoading(false)
+    setProfileNameDraft('')
+    setProfileNicheDraft('')
+    setProfileSaveError('')
+    setProfileSaveStatus('')
+    setProfileSaveLoading(false)
     setIsYouTubeStatsOpen(false)
     setYouTubeStatsLoading(false)
     setYouTubeStatsError('')
@@ -1340,6 +1358,74 @@ export function Home() {
       setYoutubeImportError(message)
     } finally {
       setYoutubeImportLoading(false)
+    }
+  }
+
+  const saveManualChannelProfile = async (event?: React.FormEvent) => {
+    event?.preventDefault()
+
+    if (!authUserId) {
+      setProfileSaveError('Please sign in to update your channel profile.')
+      return
+    }
+
+    const channelName = profileNameDraft.trim()
+    const niche = profileNicheDraft.trim()
+
+    if (!channelName) {
+      setProfileSaveError('Enter a channel name.')
+      return
+    }
+    if (!niche) {
+      setProfileSaveError('Enter a niche.')
+      return
+    }
+
+    setProfileSaveLoading(true)
+    setProfileSaveError('')
+    setProfileSaveStatus('')
+
+    try {
+      const previousName = manualProfile.channelName
+      const previousNiche = manualProfile.niche
+      const saved = /^[0-9a-f-]{36}$/i.test(manualProfile.id)
+        ? await channelProfileService.update(manualProfile.id, authUserId, {
+            channel_name: channelName,
+            niche,
+          })
+        : await channelProfileService.upsertDefault({
+            ...buildDefaultProfileInput(authUserId, onboarding),
+            channel_name: channelName,
+            niche,
+          })
+
+      const mapped = toChannelProfile(saved)
+      setProfiles((current) => {
+        const rest = current.filter((profile) => profile.id !== mapped.id)
+        return [mapped, ...rest]
+      })
+      setScripts((current) =>
+        current.map((script) => ({
+          ...script,
+          profile: script.profile === previousName ? mapped.channelName : script.profile,
+        })),
+      )
+      setChannelContext((value) => ({
+        ...value,
+        channelProfile:
+          value.channelProfile === manualProfile.description || value.channelProfile === previousName
+            ? mapped.description
+            : value.channelProfile,
+        channelName: !value.channelName || value.channelName === previousName ? mapped.channelName : value.channelName,
+        niche: !value.niche || value.niche === previousNiche ? mapped.niche : value.niche,
+      }))
+      setProfileSaveStatus('Channel profile updated.')
+      openToast('Channel profile updated.')
+    } catch (error) {
+      const message = getErrorMessage(error, 'Unable to update your channel profile.')
+      setProfileSaveError(message)
+    } finally {
+      setProfileSaveLoading(false)
     }
   }
 
@@ -3885,8 +3971,53 @@ export function Home() {
                   <article className="panel glass-panel channel-profile-card channel-profile-manual-panel">
                     <div className="channel-profile-card-head">
                       <p className="eyebrow">Manual onboarding profile</p>
-                      <h3>Onboarding profile snapshot</h3>
+                      <h3>Edit profile basics</h3>
                     </div>
+                    <form className="profile-edit-form" onSubmit={saveManualChannelProfile}>
+                      <label>
+                        Channel name
+                        <input
+                          type="text"
+                          value={profileNameDraft}
+                          onChange={(event) => {
+                            setProfileNameDraft(event.target.value)
+                            setProfileSaveError('')
+                            setProfileSaveStatus('')
+                          }}
+                          placeholder="Your channel name"
+                          disabled={profileSaveLoading}
+                        />
+                      </label>
+                      <label>
+                        Niche
+                        <input
+                          type="text"
+                          value={profileNicheDraft}
+                          onChange={(event) => {
+                            setProfileNicheDraft(event.target.value)
+                            setProfileSaveError('')
+                            setProfileSaveStatus('')
+                          }}
+                          placeholder="AI automation, finance, history..."
+                          disabled={profileSaveLoading}
+                        />
+                      </label>
+                      <div className="profile-edit-actions">
+                        <button
+                          className="btn primary"
+                          type="submit"
+                          disabled={
+                            profileSaveLoading ||
+                            (!profileNameDraft.trim() && !profileNicheDraft.trim()) ||
+                            (profileNameDraft.trim() === manualProfile.channelName && profileNicheDraft.trim() === manualProfile.niche)
+                          }
+                        >
+                          {profileSaveLoading ? 'Saving...' : 'Save changes'}
+                        </button>
+                      </div>
+                      {profileSaveError && <p className="error-message">{profileSaveError}</p>}
+                      {profileSaveStatus && <p className="success-message">{profileSaveStatus}</p>}
+                    </form>
                     <div className="manual-profile-preview manual-profile-preview-compact">
                       <h3>{manualProfile.channelName}</h3>
                       <p className="manual-profile-description">{manualProfile.description}</p>
