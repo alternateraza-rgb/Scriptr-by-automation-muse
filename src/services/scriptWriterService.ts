@@ -24,6 +24,11 @@ type ScriptGenerationJob = {
   script?: GeneratedScript
 }
 
+type ScriptGenerationStartResponse = {
+  job?: ScriptGenerationJob
+  script?: GeneratedScript
+}
+
 const MAX_SCRIPT_JOB_POLLS = 120
 const DEFAULT_POLL_INTERVAL_MS = 1200
 const SCRIPT_JOB_STORAGE_PREFIX = 'scriptr:script-generation-job:'
@@ -162,6 +167,11 @@ const shouldPreserveStoredJob = (error: unknown) => {
   )
 }
 
+const hasValidGeneratedScript = (value: unknown): value is GeneratedScript => {
+  const script = (value as GeneratedScript | undefined)?.script
+  return Boolean(script && Array.isArray(script.sections) && script.sections.length > 0)
+}
+
 export async function generateScript(payload: ScriptPayload): Promise<GeneratedScript> {
   const storageKey = hashPayload(payload)
   const storedJobId = getStoredJobId(storageKey)
@@ -179,10 +189,20 @@ export async function generateScript(payload: ScriptPayload): Promise<GeneratedS
     }
   }
 
-  const data = await callScriptGenerationFunction<{ job?: ScriptGenerationJob }>('generateScript', payload)
+  const data = await callScriptGenerationFunction<ScriptGenerationStartResponse>('generateScript', payload)
+  if (hasValidGeneratedScript(data.script)) {
+    clearStoredJobId(storageKey)
+    return data.script
+  }
+
   const job = data.job
+  if (job?.status === 'completed' && hasValidGeneratedScript(job.script)) {
+    clearStoredJobId(storageKey)
+    return job.script
+  }
+
   if (!job?.jobId) {
-    throw new Error('Script generation could not be started.')
+    throw new Error(job?.error || 'Script generation could not be started.')
   }
 
   setStoredJobId(storageKey, job.jobId)
