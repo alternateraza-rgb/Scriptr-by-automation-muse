@@ -677,7 +677,7 @@ export type ScriptGenerationPublicJob = {
   script?: GeneratedScript
 }
 
-const SCRIPT_STEP_TIMEOUT_MS = 18000
+const SCRIPT_STEP_TIMEOUT_MS = 42000
 const MAX_STEP_ATTEMPTS = 3
 const RETRY_BASE_DELAY_MS = 1200
 
@@ -1155,6 +1155,7 @@ export const advanceScriptGenerationJob = async (job: ScriptGenerationJobRecord)
         systemPrompt: ADVANCED_SYSTEM_PROMPT,
         userPrompt: buildJobOutlinePrompt(cleanedPayload),
         temperature: 0.7,
+        reasoningEffort: 'low',
       })
       const outline = normalizeOutlineOutput(output, input)
       return {
@@ -1188,6 +1189,7 @@ export const advanceScriptGenerationJob = async (job: ScriptGenerationJobRecord)
         systemPrompt: ADVANCED_SYSTEM_PROMPT,
         userPrompt: buildSectionPrompt(cleanedPayload, progress.outline, progress.sections, section),
         temperature: 0.85,
+        reasoningEffort: 'low',
       })
       const generatedSection = normalizeSectionOutput(output, section)
       const outlineContent = progress.outline.find((item) => item.section.toLowerCase() === section.toLowerCase())?.content || section
@@ -1226,6 +1228,7 @@ export const advanceScriptGenerationJob = async (job: ScriptGenerationJobRecord)
       systemPrompt: ADVANCED_SYSTEM_PROMPT,
       userPrompt: buildFinalPolishPrompt(cleanedPayload, assembledScript),
       temperature: 0.75,
+      reasoningEffort: 'low',
     })
     const polishedScript = normalizeScriptOutput(output, assembledScript)
     validateCompleteScript(polishedScript, cleanedPayload)

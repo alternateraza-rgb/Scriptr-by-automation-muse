@@ -1,7 +1,8 @@
-import { createInitialScriptGenerationProgress, generateFullScript, toPublicScriptGenerationJob } from './services/scriptWriterService.mts'
+import { enqueueScriptGenerationWorker } from './services/scriptGenerationWorkerClient.mts'
+import { createInitialScriptGenerationProgress, toPublicScriptGenerationJob } from './services/scriptWriterService.mts'
 import { createAuthedJobClient, insertScriptGenerationJob } from './services/scriptGenerationJobStore.mts'
 import { failure, parseJsonBody, success } from './utils/response.mts'
-import type { ChannelContext, GeneratedScript, OutlineSection, VideoIdea } from './services/types.mts'
+import type { ChannelContext, OutlineSection, VideoIdea } from './services/types.mts'
 
 type ScriptRequest = {
   channelContext?: ChannelContext
@@ -36,21 +37,6 @@ const getErrorMessage = (error: unknown) => {
   return ''
 }
 
-const createCompletedInlineJob = (script: GeneratedScript) => {
-  const sections = Array.isArray(script.script.sections) ? script.script.sections : []
-  return {
-    jobId: `inline-${Date.now()}`,
-    status: 'completed' as const,
-    currentStep: 'completed' as const,
-    currentSectionIndex: sections.length,
-    totalSections: sections.length,
-    completedSections: sections.length,
-    retryAfterMs: 0,
-    error: null,
-    script,
-  }
-}
-
 export default async (req: Request) => {
   try {
     if (req.method !== 'POST') {
@@ -72,25 +58,10 @@ export default async (req: Request) => {
     }
 
     const { supabase, userId } = await createAuthedJobClient(req)
-    try {
-      const job = await insertScriptGenerationJob(supabase, userId, requestPayload, createInitialScriptGenerationProgress())
+    const job = await insertScriptGenerationJob(supabase, userId, requestPayload, createInitialScriptGenerationProgress())
+    await enqueueScriptGenerationWorker(req, job.id)
 
-      return success({ job: toPublicScriptGenerationJob(job) }, 202)
-    } catch (jobError) {
-      console.error('[generateScript] job insert failed; falling back to inline generation', { err: jobError })
-
-      try {
-        const script = await generateFullScript(requestPayload)
-        return success({ job: createCompletedInlineJob(script), script })
-      } catch (generationError) {
-        console.error('[generateScript] inline fallback failed', { err: generationError })
-        return failure(
-          getErrorMessage(generationError) ||
-            getErrorMessage(jobError) ||
-            'Script generation could not be started.',
-        )
-      }
-    }
+    return success({ job: toPublicScriptGenerationJob(job) }, 202)
   } catch (err) {
     console.error('[generateScript] job creation failed', { err })
     return failure(getErrorMessage(err) || 'Script generation could not be started.')

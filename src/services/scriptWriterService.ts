@@ -132,9 +132,32 @@ const callScriptGenerationFunction = async <TResponse>(functionName: string, pay
   return (parsed?.data ?? ({} as TResponse)) as TResponse
 }
 
+const isTransientScriptGenerationError = (error: unknown) => {
+  const message = error instanceof Error ? error.message.toLowerCase() : ''
+  return (
+    message.includes('network') ||
+    message.includes('failed to fetch') ||
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('status 502') ||
+    message.includes('status 503') ||
+    message.includes('status 504')
+  )
+}
+
 const pollScriptGenerationJob = async (jobId: string): Promise<GeneratedScript> => {
   for (let pollCount = 0; pollCount < MAX_SCRIPT_JOB_POLLS; pollCount += 1) {
-    const data = await callScriptGenerationFunction<{ job?: ScriptGenerationJob }>('generateScriptStatus', { jobId })
+    let data: { job?: ScriptGenerationJob }
+    try {
+      data = await callScriptGenerationFunction<{ job?: ScriptGenerationJob }>('generateScriptStatus', { jobId })
+    } catch (error) {
+      if (pollCount < MAX_SCRIPT_JOB_POLLS - 1 && isTransientScriptGenerationError(error)) {
+        await delay(DEFAULT_POLL_INTERVAL_MS)
+        continue
+      }
+      throw error
+    }
+
     const job = data.job
     if (!job) {
       throw new Error('Script generation returned an invalid job status.')
@@ -160,9 +183,8 @@ const pollScriptGenerationJob = async (jobId: string): Promise<GeneratedScript> 
 const shouldPreserveStoredJob = (error: unknown) => {
   const message = error instanceof Error ? error.message.toLowerCase() : ''
   return (
+    isTransientScriptGenerationError(error) ||
     message.includes('still running') ||
-    message.includes('network') ||
-    message.includes('failed to fetch') ||
     message.includes('status could not be updated')
   )
 }
