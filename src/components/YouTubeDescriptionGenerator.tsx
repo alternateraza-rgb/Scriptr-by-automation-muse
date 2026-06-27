@@ -114,24 +114,24 @@ export function YouTubeDescriptionGenerator({ onToast }: YouTubeDescriptionGener
       </section>
 
       <section className="panel glass-panel">
-        <div className="split-header">
-          <div>
-            <p className="eyebrow">Output</p>
-            <h3>Generated description</h3>
-            <p>Review the SEO-optimized description below, then copy it into YouTube Studio.</p>
-          </div>
-          {generatedDescription ? (
-            <button className="btn secondary" type="button" onClick={() => void handleCopy()}>
-              <Copy className="icon-inline" aria-hidden="true" />
-              Copy to Clipboard
-            </button>
-          ) : null}
+        <div>
+          <p className="eyebrow">Output</p>
+          <h3>Generated description</h3>
+          <p>Review the SEO-optimized description below, then copy it into YouTube Studio.</p>
         </div>
 
         {generatedDescription ? (
-          <article className="result-card description-output">
-            <p style={{ whiteSpace: 'pre-wrap' }}>{generatedDescription}</p>
-          </article>
+          <>
+            <article className="result-card description-output">
+              <p style={{ whiteSpace: 'pre-wrap' }}>{generatedDescription}</p>
+            </article>
+            <div className="action-row">
+              <button className="btn secondary" type="button" onClick={() => void handleCopy()}>
+                <Copy className="icon-inline" aria-hidden="true" />
+                Copy to Clipboard
+              </button>
+            </div>
+          </>
         ) : (
           <p className="muted-note">
             {isGenerating
