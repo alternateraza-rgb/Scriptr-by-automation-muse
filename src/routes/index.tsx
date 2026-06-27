@@ -30,6 +30,7 @@ import {
   type ImportedYouTubeChannelStats,
 } from '../services/youtubeChannelService'
 import { YouTubeDescriptionGenerator } from '../components/YouTubeDescriptionGenerator'
+import { YouTubeHashtagsGenerator } from '../components/YouTubeHashtagsGenerator'
 import {
   ArrowRight,
   BarChart3,
@@ -57,6 +58,7 @@ import {
 
 type Screen = 'landing' | 'signin' | 'signup' | 'forgot' | 'reset' | 'onboarding' | 'app'
 type NavKey = 'dashboard' | 'generate' | 'chat' | 'scripts' | 'tools' | 'profiles' | 'usage' | 'billing' | 'preferences' | 'settings'
+type ToolKey = 'description' | 'hashtags'
 type WorkflowStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
 type AppTheme = 'crimson' | 'indigo' | 'emerald' | 'amber'
 
@@ -244,6 +246,11 @@ const NAV_ITEMS: { key: NavKey; label: string; icon: React.ComponentType<{ class
   { key: 'billing', label: 'Billing', icon: CreditCard },
   { key: 'preferences', label: 'Preferences', icon: Palette },
   { key: 'settings', label: 'Settings', icon: Settings2 },
+]
+
+const TOOLS_ITEMS: { key: ToolKey; label: string }[] = [
+  { key: 'description', label: 'Description Generator' },
+  { key: 'hashtags', label: 'Hashtags Generator' },
 ]
 
 const THEME_OPTIONS: Array<{
@@ -943,6 +950,7 @@ export function Home() {
 
   const [screen, setScreen] = useState<Screen>('landing')
   const [activeNav, setActiveNav] = useState<NavKey>('dashboard')
+  const [activeTool, setActiveTool] = useState<ToolKey>('description')
   const [workflowStep, setWorkflowStep] = useState<WorkflowStep>(1)
   const [onboardingStep, setOnboardingStep] = useState(1)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -4276,13 +4284,38 @@ export function Home() {
                 <p>Utility workflows to support your YouTube content pipeline.</p>
               </header>
 
+              <div className="tabs-row">
+                {TOOLS_ITEMS.map((tool) => (
+                  <button
+                    key={tool.key}
+                    className={`tab-pill ${activeTool === tool.key ? 'active' : ''}`}
+                    onClick={() => setActiveTool(tool.key)}
+                  >
+                    {tool.label}
+                  </button>
+                ))}
+              </div>
+
               <section className="panel glass-panel">
-                <div>
-                  <span className="chip">YouTube SEO</span>
-                  <h2>YouTube Video Description Generator</h2>
-                  <p>Turn any video script into a polished, keyword-rich YouTube description in seconds.</p>
-                </div>
-                <YouTubeDescriptionGenerator onToast={openToast} />
+                {activeTool === 'description' ? (
+                  <>
+                    <div>
+                      <span className="chip">YouTube SEO</span>
+                      <h2>YouTube Video Description Generator</h2>
+                      <p>Turn any video script into a polished, keyword-rich YouTube description in seconds.</p>
+                    </div>
+                    <YouTubeDescriptionGenerator onToast={openToast} />
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <span className="chip">YouTube SEO</span>
+                      <h2>YouTube Hashtags Generator</h2>
+                      <p>Generate optimized hashtags from your video script, topic, or description.</p>
+                    </div>
+                    <YouTubeHashtagsGenerator onToast={openToast} />
+                  </>
+                )}
               </section>
             </section>
           )}
