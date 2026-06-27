@@ -1943,7 +1943,8 @@ label {
   font-weight: 600;
 }
 
-.description-output {
+.description-output,
+.hashtags-output {
   margin-top: 0.75rem;
 }
 
