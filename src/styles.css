@@ -1965,6 +1965,10 @@ label {
   margin-top: 0.65rem;
 }
 
+.tools-tabs {
+  margin-bottom: 0.25rem;
+}
+
 .pricing-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

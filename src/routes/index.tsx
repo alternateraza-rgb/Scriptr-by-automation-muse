@@ -30,6 +30,7 @@ import {
   type ImportedYouTubeChannelStats,
 } from '../services/youtubeChannelService'
 import { YouTubeDescriptionGenerator } from '../components/YouTubeDescriptionGenerator'
+import { YouTubeHashtagsGenerator } from '../components/YouTubeHashtagsGenerator'
 import {
   ArrowRight,
   BarChart3,
@@ -57,6 +58,7 @@ import {
 
 type Screen = 'landing' | 'signin' | 'signup' | 'forgot' | 'reset' | 'onboarding' | 'app'
 type NavKey = 'dashboard' | 'generate' | 'chat' | 'scripts' | 'tools' | 'profiles' | 'usage' | 'billing' | 'preferences' | 'settings'
+type ToolsTab = 'description' | 'hashtags'
 type WorkflowStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
 type AppTheme = 'crimson' | 'indigo' | 'emerald' | 'amber'
 
@@ -943,6 +945,7 @@ export function Home() {
 
   const [screen, setScreen] = useState<Screen>('landing')
   const [activeNav, setActiveNav] = useState<NavKey>('dashboard')
+  const [activeToolsTab, setActiveToolsTab] = useState<ToolsTab>('description')
   const [workflowStep, setWorkflowStep] = useState<WorkflowStep>(1)
   const [onboardingStep, setOnboardingStep] = useState(1)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -4276,13 +4279,43 @@ export function Home() {
                 <p>Utility workflows to support your YouTube content pipeline.</p>
               </header>
 
+              <div className="tabs-row tools-tabs">
+                <button
+                  type="button"
+                  className={`tab-pill ${activeToolsTab === 'description' ? 'active' : ''}`}
+                  onClick={() => setActiveToolsTab('description')}
+                >
+                  Description Generator
+                </button>
+                <button
+                  type="button"
+                  className={`tab-pill ${activeToolsTab === 'hashtags' ? 'active' : ''}`}
+                  onClick={() => setActiveToolsTab('hashtags')}
+                >
+                  Hashtags Generator
+                </button>
+              </div>
+
               <section className="panel glass-panel">
-                <div>
-                  <span className="chip">YouTube SEO</span>
-                  <h2>YouTube Video Description Generator</h2>
-                  <p>Turn any video script into a polished, keyword-rich YouTube description in seconds.</p>
-                </div>
-                <YouTubeDescriptionGenerator onToast={openToast} />
+                {activeToolsTab === 'description' ? (
+                  <>
+                    <div>
+                      <span className="chip">YouTube SEO</span>
+                      <h2>YouTube Video Description Generator</h2>
+                      <p>Turn any video script into a polished, keyword-rich YouTube description in seconds.</p>
+                    </div>
+                    <YouTubeDescriptionGenerator onToast={openToast} />
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <span className="chip">YouTube SEO</span>
+                      <h2>YouTube Hashtags Generator</h2>
+                      <p>Generate a balanced mix of broad and niche hashtags from your script, topic, or description.</p>
+                    </div>
+                    <YouTubeHashtagsGenerator onToast={openToast} />
+                  </>
+                )}
               </section>
             </section>
           )}
