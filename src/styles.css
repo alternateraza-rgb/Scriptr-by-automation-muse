@@ -1933,6 +1933,38 @@ label {
   color: #ff8f98;
 }
 
+.word-count {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.word-count-over {
+  color: #ff8f98;
+  font-weight: 600;
+}
+
+.description-output {
+  margin-top: 0.75rem;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tools-page h2 {
+  margin-top: 0.65rem;
+}
+
 .pricing-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

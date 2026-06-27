@@ -29,6 +29,7 @@ import {
   importYouTubeChannel,
   type ImportedYouTubeChannelStats,
 } from '../services/youtubeChannelService'
+import { YouTubeDescriptionGenerator } from '../components/YouTubeDescriptionGenerator'
 import {
   ArrowRight,
   BarChart3,
@@ -50,11 +51,12 @@ import {
   Settings2,
   Sparkles,
   Target,
+  Wrench,
   X,
 } from 'lucide-react'
 
 type Screen = 'landing' | 'signin' | 'signup' | 'forgot' | 'reset' | 'onboarding' | 'app'
-type NavKey = 'dashboard' | 'generate' | 'chat' | 'scripts' | 'profiles' | 'usage' | 'billing' | 'preferences' | 'settings'
+type NavKey = 'dashboard' | 'generate' | 'chat' | 'scripts' | 'tools' | 'profiles' | 'usage' | 'billing' | 'preferences' | 'settings'
 type WorkflowStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
 type AppTheme = 'crimson' | 'indigo' | 'emerald' | 'amber'
 
@@ -236,6 +238,7 @@ const NAV_ITEMS: { key: NavKey; label: string; icon: React.ComponentType<{ class
   { key: 'generate', label: 'Generate', icon: Sparkles },
   { key: 'chat', label: 'Chat', icon: MessageSquare },
   { key: 'scripts', label: 'Scripts', icon: FileText },
+  { key: 'tools', label: 'Tools', icon: Wrench },
   { key: 'profiles', label: 'Channel Profile', icon: BookOpen },
   { key: 'usage', label: 'Analytics', icon: BarChart3 },
   { key: 'billing', label: 'Billing', icon: CreditCard },
@@ -4263,6 +4266,24 @@ export function Home() {
                   </div>
                 </section>
               </div>
+            </section>
+          )}
+
+          {activeNav === 'tools' && (
+            <section className="tools-page menu-transition-surface">
+              <header className="page-header">
+                <h1>Tools</h1>
+                <p>Utility workflows to support your YouTube content pipeline.</p>
+              </header>
+
+              <section className="panel glass-panel">
+                <div>
+                  <span className="chip">YouTube SEO</span>
+                  <h2>YouTube Video Description Generator</h2>
+                  <p>Turn any video script into a polished, keyword-rich YouTube description in seconds.</p>
+                </div>
+                <YouTubeDescriptionGenerator onToast={openToast} />
+              </section>
             </section>
           )}
 
