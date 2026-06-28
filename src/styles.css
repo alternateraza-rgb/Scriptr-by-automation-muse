@@ -2799,6 +2799,17 @@ label {
   min-height: 240px;
 }
 
+.creator-chart-empty {
+  min-height: 220px;
+  width: 100%;
+  place-items: center;
+  text-align: center;
+}
+
+.creator-topic-layout .creator-chart-empty {
+  grid-column: 1 / -1;
+}
+
 .creator-chart-tooltip p {
   margin: 0.2rem 0 0;
   color: #d4d4d4;
