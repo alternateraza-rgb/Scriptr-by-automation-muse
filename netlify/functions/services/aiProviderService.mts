@@ -84,12 +84,13 @@ const callOpenAI = async ({
     throw new Error('OPENAI_API_KEY is not configured.')
   }
 
+  const model = getEnv('AI_MODEL_OPENAI') || 'gpt-5-mini'
+  const sdkTimeoutMs = Number(getEnv('OPENAI_SDK_TIMEOUT_MS') || 45000)
   const client = new OpenAI({
     apiKey,
-    timeout: 45000,
+    timeout: sdkTimeoutMs,
   })
 
-  const model = getEnv('AI_MODEL_OPENAI') || 'gpt-5-mini'
   const requestOptions = sanitizeOpenAIRequestOptions({
     model,
     reasoning_effort: reasoningEffort,
@@ -104,10 +105,36 @@ const callOpenAI = async ({
     ],
   })
 
-  const response = await client.chat.completions.create(requestOptions, { signal })
+  const startedAt = Date.now()
+  console.info('[openai:start]', {
+    model,
+    sdkTimeoutMs,
+    userPromptChars: userPrompt.length,
+    systemPromptChars: systemPrompt.length,
+    hasAbortSignal: Boolean(signal),
+  })
 
-  const content = response.choices[0]?.message?.content || ''
-  return extractJson(typeof content === 'string' ? content : '')
+  try {
+    const response = await client.chat.completions.create(requestOptions, { signal })
+    const durationMs = Date.now() - startedAt
+    const content = response.choices[0]?.message?.content || ''
+    console.info('[openai:complete]', {
+      model,
+      durationMs,
+      finishReason: response.choices[0]?.finish_reason || null,
+      responseChars: typeof content === 'string' ? content.length : 0,
+    })
+    return extractJson(typeof content === 'string' ? content : '')
+  } catch (error) {
+    const durationMs = Date.now() - startedAt
+    console.error('[openai:error]', {
+      model,
+      durationMs,
+      aborted: signal?.aborted ?? false,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
 }
 
 export const runAiJson = async (input: RunAiInput) => callOpenAI(input)
@@ -122,13 +149,31 @@ export class AiTimeoutError extends Error {
 export const runAiJsonWithTimeout = async (input: Omit<RunAiInput, 'signal'>, timeoutMs: number) => {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const startedAt = Date.now()
+
+  console.info('[openai:step:start]', {
+    timeoutMs,
+    userPromptChars: input.userPrompt.length,
+  })
 
   try {
-    return await callOpenAI({ ...input, signal: controller.signal })
+    const result = await callOpenAI({ ...input, signal: controller.signal })
+    console.info('[openai:step:complete]', {
+      timeoutMs,
+      durationMs: Date.now() - startedAt,
+    })
+    return result
   } catch (error) {
+    const durationMs = Date.now() - startedAt
     if (controller.signal.aborted) {
+      console.warn('[openai:step:timeout]', { timeoutMs, durationMs })
       throw new AiTimeoutError(timeoutMs)
     }
+    console.error('[openai:step:error]', {
+      timeoutMs,
+      durationMs,
+      error: error instanceof Error ? error.message : String(error),
+    })
     throw error
   } finally {
     clearTimeout(timeout)

@@ -31,7 +31,18 @@ type ScriptGenerationStartResponse = {
 
 const MAX_SCRIPT_JOB_POLLS = 120
 const DEFAULT_POLL_INTERVAL_MS = 1200
+const GATEWAY_TIMEOUT_RETRY_MS = 2000
 const SCRIPT_JOB_STORAGE_PREFIX = 'scriptr:script-generation-job:'
+
+class ScriptGenerationGatewayTimeoutError extends Error {
+  readonly status: number
+
+  constructor(status: number) {
+    super(`Script generation gateway timeout (${status}). The job may still be running.`)
+    this.name = 'ScriptGenerationGatewayTimeoutError'
+    this.status = status
+  }
+}
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -105,7 +116,27 @@ const getAuthHeaders = async () => {
   }
 }
 
-const callScriptGenerationFunction = async <TResponse>(functionName: string, payload: unknown): Promise<TResponse> => {
+const isGatewayTimeoutResponse = (response: Response, text: string) => {
+  if (response.status === 504 || response.status === 502) {
+    return true
+  }
+
+  const normalized = text.trim().toLowerCase()
+  return (
+    !normalized ||
+    normalized.startsWith('<!doctype') ||
+    normalized.startsWith('<html') ||
+    normalized.includes('gateway timeout') ||
+    normalized.includes('timed out')
+  )
+}
+
+const callScriptGenerationFunction = async <TResponse>(
+  functionName: string,
+  payload: unknown,
+  options?: { allowGatewayTimeout?: boolean },
+): Promise<TResponse> => {
+  const startedAt = Date.now()
   const authHeaders = await getAuthHeaders()
   const response = await fetch(`/.netlify/functions/${functionName}`, {
     method: 'POST',
@@ -118,12 +149,33 @@ const callScriptGenerationFunction = async <TResponse>(functionName: string, pay
   })
 
   const text = await response.text()
+  const durationMs = Date.now() - startedAt
+
+  if (options?.allowGatewayTimeout && isGatewayTimeoutResponse(response, text)) {
+    console.warn('[script-generation:client] gateway timeout while polling', {
+      functionName,
+      status: response.status,
+      durationMs,
+    })
+    throw new ScriptGenerationGatewayTimeoutError(response.status)
+  }
+
   let parsed: { success?: boolean; data?: TResponse; error?: string } | null = null
   try {
     parsed = text ? JSON.parse(text) : null
   } catch {
+    if (options?.allowGatewayTimeout && isGatewayTimeoutResponse(response, text)) {
+      throw new ScriptGenerationGatewayTimeoutError(response.status)
+    }
     throw new Error(response.ok ? 'Invalid JSON response from script generation.' : `Script generation failed with status ${response.status}.`)
   }
+
+  console.info('[script-generation:client] function response', {
+    functionName,
+    status: response.status,
+    durationMs,
+    success: parsed?.success !== false,
+  })
 
   if (!response.ok || parsed?.success === false) {
     throw new Error(parsed?.error || `Script generation failed with status ${response.status}.`)
@@ -134,24 +186,32 @@ const callScriptGenerationFunction = async <TResponse>(functionName: string, pay
 
 const pollScriptGenerationJob = async (jobId: string): Promise<GeneratedScript> => {
   for (let pollCount = 0; pollCount < MAX_SCRIPT_JOB_POLLS; pollCount += 1) {
-    const data = await callScriptGenerationFunction<{ job?: ScriptGenerationJob }>('generateScriptStatus', { jobId })
-    const job = data.job
-    if (!job) {
-      throw new Error('Script generation returned an invalid job status.')
-    }
-
-    if (job.status === 'completed') {
-      if (!job.script?.script?.sections?.length) {
-        throw new Error('Script generation completed without a valid script.')
+    try {
+      const data = await callScriptGenerationFunction<{ job?: ScriptGenerationJob }>('generateScriptStatus', { jobId }, { allowGatewayTimeout: true })
+      const job = data.job
+      if (!job) {
+        throw new Error('Script generation returned an invalid job status.')
       }
-      return job.script
-    }
 
-    if (job.status === 'failed') {
-      throw new Error(job.error || 'Script generation failed. Please try again.')
-    }
+      if (job.status === 'completed') {
+        if (!job.script?.script?.sections?.length) {
+          throw new Error('Script generation completed without a valid script.')
+        }
+        return job.script
+      }
 
-    await delay(Math.max(DEFAULT_POLL_INTERVAL_MS, job.retryAfterMs || 0))
+      if (job.status === 'failed') {
+        throw new Error(job.error || 'Script generation failed. Please try again.')
+      }
+
+      await delay(Math.max(DEFAULT_POLL_INTERVAL_MS, job.retryAfterMs || 0))
+    } catch (error) {
+      if (error instanceof ScriptGenerationGatewayTimeoutError) {
+        await delay(GATEWAY_TIMEOUT_RETRY_MS)
+        continue
+      }
+      throw error
+    }
   }
 
   throw new Error('Script generation is still running. Retry to resume from the latest saved section.')
@@ -160,7 +220,9 @@ const pollScriptGenerationJob = async (jobId: string): Promise<GeneratedScript> 
 const shouldPreserveStoredJob = (error: unknown) => {
   const message = error instanceof Error ? error.message.toLowerCase() : ''
   return (
+    error instanceof ScriptGenerationGatewayTimeoutError ||
     message.includes('still running') ||
+    message.includes('gateway timeout') ||
     message.includes('network') ||
     message.includes('failed to fetch') ||
     message.includes('status could not be updated')
