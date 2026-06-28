@@ -73,6 +73,8 @@ export type ScriptChatMessage = {
   content: string
 }
 
+export type ChatMode = 'general' | 'script'
+
 export type ScriptPolishRequest = {
   script: string
   mode: 'shorten' | 'expand' | 'retention' | 'simplify' | 'intensify'

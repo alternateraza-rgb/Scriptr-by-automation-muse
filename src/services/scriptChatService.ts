@@ -1,9 +1,10 @@
 import { callAiFunction } from './aiProviderService'
-import type { ChannelContext, GeneratedScript, ScriptChatMessage } from './types'
+import type { ChannelContext, ChatMode, GeneratedScript, ScriptChatMessage } from './types'
 
 type ScriptChatPayload = {
   messages: ScriptChatMessage[]
   channelContext?: ChannelContext
+  mode?: ChatMode
 }
 
 export async function sendScriptChatMessage(payload: ScriptChatPayload): Promise<{ message: string }> {
