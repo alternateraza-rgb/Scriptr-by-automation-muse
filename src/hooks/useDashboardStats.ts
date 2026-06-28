@@ -1,4 +1,10 @@
-import { useMemo } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
+import {
+  aggregateDashboardStats,
+  fetchScriptGenerationJobsForUser,
+  type AggregatedDashboardData,
+} from '../services/data/dashboardStatsService'
 
 export type WeeklyProductionPoint = {
   week: string
@@ -28,77 +34,118 @@ export type DashboardStats = {
   durationTrends: DurationTrendPoint[]
   topicDistribution: TopicDistributionItem[]
   isLoading: boolean
+  isEmpty: boolean
+}
+
+const EMPTY_STATS: AggregatedDashboardData = {
+  totalScriptsThisMonth: 0,
+  averageDurationMinutes: 0,
+  activeProjects: 0,
+  weeklyProduction: [],
+  durationTrends: [],
+  topicDistribution: [],
+  isEmpty: true,
 }
 
 const TOPIC_COLORS = ['#ff3347', '#e11d2e', '#ff6b7a', '#c41e2e']
 
-function getWeeksInCurrentMonth(): WeeklyProductionPoint[] {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth()
-  const weeks: WeeklyProductionPoint[] = []
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
-
-  let weekStart = new Date(firstDay)
-  let weekIndex = 1
-
-  while (weekStart <= lastDay) {
-    weeks.push({
-      week: `W${weekIndex}`,
-      scripts: [4, 7, 5, 9, 6, 11, 8, 3][weekIndex - 1] ?? 5,
-    })
-    weekStart = new Date(weekStart)
-    weekStart.setDate(weekStart.getDate() + 7)
-    weekIndex += 1
-  }
-
-  return weeks.slice(0, 4)
-}
-
-function getDurationTrends(): DurationTrendPoint[] {
-  const points: DurationTrendPoint[] = []
-  const today = new Date()
-
-  for (let i = 29; i >= 0; i -= 1) {
-    const date = new Date(today)
-    date.setDate(date.getDate() - i)
-    const label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    const wave = Math.sin(i / 4.5) * 2.2
-    const trend = (29 - i) * 0.04
-    points.push({
-      date: label,
-      avgMinutes: Number((8.5 + wave + trend).toFixed(1)),
-    })
-  }
-
-  return points
-}
+const toDashboardStats = (data: AggregatedDashboardData, isLoading: boolean): DashboardStats => ({
+  kpis: {
+    totalScripts: data.totalScriptsThisMonth,
+    averageDurationMinutes: data.averageDurationMinutes,
+    activeProjects: data.activeProjects,
+  },
+  weeklyProduction: data.weeklyProduction,
+  durationTrends: data.durationTrends,
+  topicDistribution: data.topicDistribution,
+  isLoading,
+  isEmpty: data.isEmpty,
+})
 
 /**
- * Mock dashboard statistics hook.
- * Replace the mock generators with Supabase queries when real data is available.
+ * Loads dashboard statistics for the authenticated user from Supabase.
  */
 export function useDashboardStats(): DashboardStats {
-  return useMemo(
-    () => ({
-      kpis: {
-        totalScripts: 47,
-        averageDurationMinutes: 11.4,
-        activeProjects: 6,
-      },
-      weeklyProduction: getWeeksInCurrentMonth(),
-      durationTrends: getDurationTrends(),
-      topicDistribution: [
-        { topic: 'Productivity', count: 14, percentage: 32 },
-        { topic: 'Tech Reviews', count: 11, percentage: 25 },
-        { topic: 'Creator Tips', count: 9, percentage: 21 },
-        { topic: 'Storytelling', count: 6, percentage: 14 },
-      ],
-      isLoading: false,
-    }),
-    [],
-  )
+  const [stats, setStats] = useState<AggregatedDashboardData>(EMPTY_STATS)
+  const [isLoading, setIsLoading] = useState(true)
+
+  const loadStats = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setIsLoading(true)
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.getUser()
+    if (authError) {
+      console.error('[useDashboardStats] auth error', authError)
+      setStats(EMPTY_STATS)
+      setIsLoading(false)
+      return
+    }
+
+    const userId = authData.user?.id
+    if (!userId) {
+      setStats(EMPTY_STATS)
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      const jobs = await fetchScriptGenerationJobsForUser(userId)
+      setStats(aggregateDashboardStats(jobs))
+    } catch (error) {
+      console.error('[useDashboardStats] fetch error', error)
+      setStats(EMPTY_STATS)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+    let channel: ReturnType<typeof supabase.channel> | null = null
+
+    const initialize = async () => {
+      const { data: authData } = await supabase.auth.getUser()
+      const userId = authData.user?.id
+
+      if (!isMounted) {
+        return
+      }
+
+      await loadStats()
+
+      if (!userId || !isMounted) {
+        return
+      }
+
+      channel = supabase
+        .channel(`dashboard-stats-${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'script_generation_jobs',
+            filter: `user_id=eq.${userId}`,
+          },
+          () => {
+            void loadStats({ silent: true })
+          },
+        )
+        .subscribe()
+    }
+
+    void initialize()
+
+    return () => {
+      isMounted = false
+      if (channel) {
+        void supabase.removeChannel(channel)
+      }
+    }
+  }, [loadStats])
+
+  return toDashboardStats(stats, isLoading)
 }
 
 export { TOPIC_COLORS }
