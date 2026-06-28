@@ -5,3 +5,13 @@ ANTHROPIC_API_KEY = "Add your Anthropic API key here"
 functions = "netlify/functions"
 command = "npm run build"
 publish = "dist/client"
+
+# Netlify synchronous functions time out at the platform gateway (10s free / 26s Pro).
+# Script generation uses short per-step LLM calls inside generateScriptStatus polls.
+# Tune these if you see 504 Gateway Timeout in function logs:
+#   NETLIFY_FUNCTION_TIMEOUT_MS=10000   # set on Netlify free tier
+#   NETLIFY_FUNCTION_TIMEOUT_MS=26000   # set on Netlify Pro
+#   FUNCTION_OVERHEAD_BUDGET_MS=4000
+#   SCRIPT_STEP_TIMEOUT_MS=18000
+[functions]
+node_bundler = "esbuild"

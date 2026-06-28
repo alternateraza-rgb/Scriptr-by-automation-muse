@@ -1,4 +1,5 @@
 import { AiTimeoutError, runAiJson, runAiJsonWithTimeout } from './aiProviderService.mts'
+import { SCRIPT_STEP_TIMEOUT_MS } from '../utils/functionLimits.mts'
 import type { ChannelContext, GeneratedScript, OutlineSection, VideoIdea } from './types.mts'
 import type { ScriptGenerationJobRecord, ScriptGenerationJobUpdate } from './scriptGenerationJobStore.mts'
 
@@ -677,7 +678,6 @@ export type ScriptGenerationPublicJob = {
   script?: GeneratedScript
 }
 
-const SCRIPT_STEP_TIMEOUT_MS = 18000
 const MAX_STEP_ATTEMPTS = 3
 const RETRY_BASE_DELAY_MS = 1200
 
@@ -1117,7 +1117,17 @@ const buildFailureUpdate = (progress: ScriptGenerationProgress, stepKey: string,
   }
 }
 
-const runStepJson = (input: Parameters<typeof runAiJsonWithTimeout>[0]) => runAiJsonWithTimeout(input, SCRIPT_STEP_TIMEOUT_MS)
+const runStepJson = (stepKey: string, input: Parameters<typeof runAiJsonWithTimeout>[0]) => {
+  const startedAt = Date.now()
+  console.info('[script-generation:step:start]', { stepKey, timeoutMs: SCRIPT_STEP_TIMEOUT_MS })
+  return runAiJsonWithTimeout(input, SCRIPT_STEP_TIMEOUT_MS).finally(() => {
+    console.info('[script-generation:step:finish]', {
+      stepKey,
+      durationMs: Date.now() - startedAt,
+      timeoutMs: SCRIPT_STEP_TIMEOUT_MS,
+    })
+  })
+}
 
 export const toPublicScriptGenerationJob = (job: ScriptGenerationJobRecord): ScriptGenerationPublicJob => {
   const progress = normalizeProgress(job.progress)
@@ -1151,7 +1161,7 @@ export const advanceScriptGenerationJob = async (job: ScriptGenerationJobRecord)
   if (!progress.outline.length) {
     const stepKey = 'outline'
     try {
-      const output = await runStepJson({
+      const output = await runStepJson(stepKey, {
         systemPrompt: ADVANCED_SYSTEM_PROMPT,
         userPrompt: buildJobOutlinePrompt(cleanedPayload),
         temperature: 0.7,
@@ -1184,7 +1194,7 @@ export const advanceScriptGenerationJob = async (job: ScriptGenerationJobRecord)
     const section = sectionOrder[nextSectionIndex]
     const stepKey = `section:${nextSectionIndex}`
     try {
-      const output = await runStepJson({
+      const output = await runStepJson(stepKey, {
         systemPrompt: ADVANCED_SYSTEM_PROMPT,
         userPrompt: buildSectionPrompt(cleanedPayload, progress.outline, progress.sections, section),
         temperature: 0.85,
@@ -1222,7 +1232,7 @@ export const advanceScriptGenerationJob = async (job: ScriptGenerationJobRecord)
     const assembledScript = toScriptFromSections(cleanedPayload.variables.selectedTitle, progress.sections)
     validateCompleteScript(assembledScript, cleanedPayload)
 
-    const output = await runStepJson({
+    const output = await runStepJson(stepKey, {
       systemPrompt: ADVANCED_SYSTEM_PROMPT,
       userPrompt: buildFinalPolishPrompt(cleanedPayload, assembledScript),
       temperature: 0.75,
