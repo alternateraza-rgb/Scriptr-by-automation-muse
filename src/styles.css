@@ -1167,30 +1167,6 @@ label {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.chat-mode-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.42rem;
-  padding: 0.28rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  background: linear-gradient(140deg, rgba(18, 18, 18, 0.92), rgba(10, 10, 10, 0.96));
-}
-
-.chat-mode-label {
-  padding: 0 0.35rem 0 0.55rem;
-  color: #9a9a9a;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.chat-mode-toggle .tab-pill {
-  padding: 0.36rem 0.72rem;
-  font-size: 0.82rem;
-}
-
 .strategy-chat-panel {
   min-height: 68vh;
   grid-template-rows: minmax(0, 1fr) auto auto;
