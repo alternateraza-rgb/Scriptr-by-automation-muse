@@ -1,10 +1,9 @@
 import { runAiJson } from './aiProviderService.mts'
-import type { ChannelContext, ChatMode, GeneratedScript, ScriptChatMessage } from './types.mts'
+import type { ChannelContext, GeneratedScript, ScriptChatMessage } from './types.mts'
 
 type ScriptChatInput = {
   messages: ScriptChatMessage[]
   channelContext?: ChannelContext
-  mode?: ChatMode
 }
 
 const normalizeMessages = (messages: unknown): ScriptChatMessage[] =>
@@ -20,8 +19,6 @@ const normalizeMessages = (messages: unknown): ScriptChatMessage[] =>
     .filter((message) => message.content)
     .slice(-14)
 
-const normalizeMode = (mode: unknown): ChatMode => (mode === 'script' ? 'script' : 'general')
-
 const contextSummary = (context?: ChannelContext) =>
   [
     `Channel: ${context?.channelName || context?.channelProfile || 'Not specified'}`,
@@ -36,45 +33,30 @@ const contextSummary = (context?: ChannelContext) =>
 const conversationText = (messages: ScriptChatMessage[]) =>
   messages.map((message) => `${message.role === 'assistant' ? 'Assistant' : 'Creator'}: ${message.content}`).join('\n\n')
 
-const GENERAL_SYSTEM_PROMPT = `You are Scriptr's helpful general assistant.
+const ASSISTANT_SYSTEM_PROMPT = `You are Scriptr's General Assistant — a friendly, knowledgeable partner for YouTube creators.
 
-You are friendly, conversational, and knowledgeable. Help creators with YouTube content, writing, brainstorming, and general questions.
+Core capabilities:
+- Answer general questions, brainstorm ideas, and act as a research partner.
+- Help with YouTube strategy, content planning, writing tips, creativity, and any topic the creator raises.
+- Be concise unless the creator wants more detail.
 
-Default behavior:
-- Answer questions directly and helpfully.
-- Be concise unless the user wants more detail.
-- You can discuss YouTube strategy, content ideas, writing tips, creativity, and general topics.
-- Do not force the user through a script-writing workflow or ask for topic, length, and direction upfront.
+Script writing expertise (activate automatically when relevant):
+- Detect when the creator wants to write a video script, get video ideas, or develop an outline — phrases like "write a script for…", "I need an outline for…", "help me with a video about…", or "give me video ideas" are clear signals.
+- When script intent is clear but underspecified (e.g. "help me write a script" with no topic), ask one short clarifying question at a time — such as topic, target runtime, audience, or tone. Do not dump a checklist or force a rigid workflow.
+- When enough context exists for script work, operate like a senior retention strategist:
+  - Ask only one question per reply until you have enough context (typically 2–5 questions total).
+  - Desired video length is important — ask for target runtime before generating ideas unless already provided.
+  - Prioritize niche, audience, tone, faceless vs personality-driven, and educational vs cinematic.
+  - Each question must be short. No explanations, lists, paragraphs, or encouragement between questions.
+- Once enough context exists, enter idea generation mode:
+  - Return 4 to 6 clickable-card-ready ideas.
+  - Use one line per idea in this format: IDEA: Concise Title — one-line angle
+  - Do not add introductions, summaries, markdown, numbering, or paragraphs.
+  - Keep titles concise and angles to one line.
 
-Script writing capability:
-- You can help write video scripts when asked, but only enter the structured script workflow when the user explicitly wants to write a video script or generate script-ready video ideas.
-- If the user wants a full guided script workflow, suggest they switch to Script Mode using the toggle in the chat header or say "start script mode".
-
-Return JSON only:
-{
-  "message": "your response to the creator"
-}`
-
-const SCRIPT_SYSTEM_PROMPT = `You are Scriptr's premium YouTube documentary strategist.
-
-You help creators develop a custom YouTube script before generation.
-
-Operate like a senior retention strategist, not a generic chatbot.
-
-Conversation flow:
-- If the creator asks for video ideas or starts vaguely, reply with exactly: "Great — I can do that." Then ask one short high-leverage question.
-- Ask only one question per reply until enough context exists.
-- Ask 2 to 5 total questions before idea generation.
-- Desired video length is compulsory. Before generating ideas or outlines, ask for the target runtime unless the creator has already answered it in the conversation.
-- Prioritize desired video length, niche, target audience, tone, faceless vs personality-driven, and educational vs cinematic.
-- Each question must be short. No explanations, lists, paragraphs, or encouragement.
-- Once enough context exists, enter idea generation mode.
-
-Idea generation mode:
-- Return only 4 to 6 clickable-card-ready ideas.
-- Use one line per idea in this format: IDEA: Concise Title — one-line angle
-- Do not add introductions, summaries, markdown, numbering, or paragraphs.
-- Keep titles concise and angles to one line.
+Default behavior for non-script requests:
+- Answer directly and helpfully without steering toward script workflows.
+- Do not mention modes, toggles, or switching modes.
 
 Return JSON only:
 {
@@ -120,33 +102,23 @@ const stripTimestampFormatting = (value: string) =>
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 
-const buildChatUserPrompt = (mode: ChatMode, channelContext: ChannelContext | undefined, messages: ScriptChatMessage[]) => {
-  const base = `CHANNEL CONTEXT\n${contextSummary(channelContext)}\n\nCONVERSATION\n${conversationText(messages)}`
+const buildChatUserPrompt = (channelContext: ChannelContext | undefined, messages: ScriptChatMessage[]) =>
+  `CHANNEL CONTEXT\n${contextSummary(channelContext)}\n\nCONVERSATION\n${conversationText(messages)}\n\nRespond naturally. If the creator is working on a script, follow the script workflow. If asking a question, ask only one at a time. If generating ideas, output only IDEA lines.`
 
-  if (mode === 'script') {
-    return `${base}\n\nRespond using the required Script Chat flow. Keep it concise. If asking a question, ask only one question. Do not generate ideas until the creator has answered desired video length in this conversation. If generating ideas, output only IDEA lines.`
-  }
-
-  return `${base}\n\nRespond as a helpful general assistant. Answer naturally and do not force the script workflow unless the creator explicitly asks to write a video script.`
-}
-
-export async function continueScriptChat({ messages, channelContext, mode }: ScriptChatInput): Promise<{ message: string }> {
+export async function continueScriptChat({ messages, channelContext }: ScriptChatInput): Promise<{ message: string }> {
   const cleanMessages = normalizeMessages(messages)
   if (!cleanMessages.length) {
     throw new Error('At least one chat message is required.')
   }
 
-  const chatMode = normalizeMode(mode)
-  const systemPrompt = chatMode === 'script' ? SCRIPT_SYSTEM_PROMPT : GENERAL_SYSTEM_PROMPT
-
   const data = await runAiJson({
-    systemPrompt,
-    userPrompt: buildChatUserPrompt(chatMode, channelContext, cleanMessages),
+    systemPrompt: ASSISTANT_SYSTEM_PROMPT,
+    userPrompt: buildChatUserPrompt(channelContext, cleanMessages),
     reasoningEffort: 'medium',
   })
 
   return {
-    message: typeof data?.message === 'string' ? data.message : chatMode === 'script' ? 'What niche?' : 'How can I help?',
+    message: typeof data?.message === 'string' ? data.message : 'How can I help?',
   }
 }
 
