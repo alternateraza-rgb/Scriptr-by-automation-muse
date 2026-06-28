@@ -1,7 +1,15 @@
 import { callAI } from '../lib/callAI.js'
 
-export async function callAiFunction<TResponse>(functionName: string, payload: unknown): Promise<TResponse> {
-  const response = (await callAI(functionName, payload)) as {
+export type CallAiOptions = {
+  signal?: AbortSignal
+}
+
+export async function callAiFunction<TResponse>(
+  functionName: string,
+  payload: unknown,
+  options?: CallAiOptions,
+): Promise<TResponse> {
+  const response = (await callAI(functionName, payload, options)) as {
     success?: boolean
     data?: TResponse
     error?: string
