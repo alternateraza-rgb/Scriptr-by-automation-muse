@@ -12,6 +12,7 @@ import {
 } from '../services/scriptGenerationService'
 import type {
   ChannelContext,
+  ChatMode,
   GeneratedScript,
   TitlePayload,
   OutlineSection,
@@ -223,6 +224,7 @@ const INITIAL_SCRIPTS: SavedScript[] = []
 const ONBOARDING_TOTAL_STEPS = 11
 const DASHBOARD_PATH = '/dashboard'
 const SCRIPT_CHAT_STORAGE_KEY = 'scriptr.scriptChat.v1'
+const CHAT_MODE_STORAGE_KEY = 'scriptr.chatMode.v1'
 const THEME_STORAGE_KEY = 'scriptr.theme.v1'
 
 const WORKFLOW_STEPS: Array<{ id: WorkflowStep; label: string }> = [
@@ -374,6 +376,17 @@ const getChatSuggestions = (content: string): ChatSuggestion[] => {
     .map((title) => ({ title, angle: 'Open the strongest tension, then escalate toward a clear viewer payoff.', context: content }))
 
   return suggestions.slice(0, 4)
+}
+
+const detectScriptModeIntent = (content: string) => {
+  const patterns = [
+    /\b(write|create|draft|generate|help me write)\b.{0,40}\b(script|video script|youtube script)\b/i,
+    /\b(video ideas?|script ideas?)\b/i,
+    /\bstart script(?:\s+mode)?\b/i,
+    /\bhelp me\b.{0,30}\b(video|script)\b/i,
+  ]
+
+  return patterns.some((pattern) => pattern.test(content))
 }
 
 const buildChatOutlinePreview = (suggestion: ChatSuggestion, channelContext: ChannelContext): ChatOutlinePreview => ({
@@ -1036,6 +1049,7 @@ export function Home() {
   const [scriptChatMessages, setScriptChatMessages] = useState<ScriptChatMessage[]>([])
   const [scriptChatInput, setScriptChatInput] = useState('')
   const [scriptChatLoading, setScriptChatLoading] = useState(false)
+  const [chatMode, setChatMode] = useState<ChatMode>('general')
   const [chatScriptLoading, setChatScriptLoading] = useState(false)
   const [chatScriptError, setChatScriptError] = useState('')
   const [chatGeneratedScript, setChatGeneratedScript] = useState<GeneratedScript | null>(null)
@@ -1103,7 +1117,20 @@ export function Home() {
     } catch {
       window.localStorage.removeItem(SCRIPT_CHAT_STORAGE_KEY)
     }
+
+    const storedMode = window.localStorage.getItem(CHAT_MODE_STORAGE_KEY)
+    if (storedMode === 'script' || storedMode === 'general') {
+      setChatMode(storedMode)
+    }
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, chatMode)
+  }, [chatMode])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -2283,6 +2310,11 @@ export function Home() {
       return
     }
 
+    const effectiveMode: ChatMode = chatMode === 'general' && detectScriptModeIntent(content) ? 'script' : chatMode
+    if (effectiveMode !== chatMode) {
+      setChatMode(effectiveMode)
+    }
+
     const userMessage: ScriptChatMessage = { id: `user-${Date.now()}`, role: 'user', content }
     const nextMessages = [...scriptChatMessages, userMessage]
     setScriptChatMessages(nextMessages)
@@ -2294,6 +2326,7 @@ export function Home() {
       const response = await sendScriptChatMessage({
         messages: nextMessages,
         channelContext,
+        mode: effectiveMode,
       })
       setScriptChatMessages((current) => [
         ...current,
@@ -2304,6 +2337,12 @@ export function Home() {
     } finally {
       setScriptChatLoading(false)
     }
+  }
+
+  const startScriptMode = () => {
+    setChatMode('script')
+    setSelectedChatOutline(null)
+    setChatScriptError('')
   }
 
   const generateFinalScriptFromChat = async () => {
@@ -2347,6 +2386,7 @@ export function Home() {
     setChatGeneratedScript(null)
     setChatScriptError('')
     setSelectedChatOutline(null)
+    setChatMode('general')
   }
 
   const sendPolishCommand = async () => {
@@ -3569,31 +3609,64 @@ export function Home() {
             <section className="script-chat-page menu-transition-surface">
               <header className="page-header split-header">
                 <div>
-                  <h1>Script Strategy Chat</h1>
-                  <p>Answer a few sharp questions, choose an idea, then generate the script.</p>
+                  <h1>{chatMode === 'script' ? 'Script Strategy Chat' : 'Chat'}</h1>
+                  <p>
+                    {chatMode === 'script'
+                      ? 'Answer a few sharp questions, choose an idea, then generate the script.'
+                      : 'Ask anything — switch to Script mode when you are ready to write a video script.'}
+                  </p>
                 </div>
                 <div className="action-row wrap">
+                  <div className="chat-mode-toggle" role="group" aria-label="Chat mode">
+                    <span className="chat-mode-label">Mode</span>
+                    <button
+                      className={`tab-pill ${chatMode === 'general' ? 'active' : ''}`}
+                      type="button"
+                      onClick={() => setChatMode('general')}
+                      disabled={scriptChatLoading || chatScriptLoading}
+                    >
+                      General
+                    </button>
+                    <button
+                      className={`tab-pill ${chatMode === 'script' ? 'active' : ''}`}
+                      type="button"
+                      onClick={startScriptMode}
+                      disabled={scriptChatLoading || chatScriptLoading}
+                    >
+                      Script
+                    </button>
+                  </div>
+                  {chatMode === 'general' && (
+                    <button className="btn secondary" type="button" onClick={startScriptMode} disabled={scriptChatLoading || chatScriptLoading}>
+                      Start Script
+                    </button>
+                  )}
                   <button className="btn secondary" onClick={resetScriptChat} disabled={scriptChatLoading || chatScriptLoading}>
                     Clear chat
                   </button>
                 </div>
               </header>
 
-              <section className="script-chat-layout">
+              <section className={`script-chat-layout ${chatMode === 'general' ? 'general-mode' : 'script-mode'}`}>
                 <div className="panel glass-panel strategy-chat-panel">
                   <div className="strategy-chat-thread">
                     {!scriptChatMessages.length ? (
                       <div className="empty-state compact">
                         <MessageSquare className="empty-icon" />
-                        <h3>Start with a request</h3>
-                        <p>Try: Generate video ideas for me</p>
+                        <h3>{chatMode === 'script' ? 'Start your script' : 'Start a conversation'}</h3>
+                        <p>
+                          {chatMode === 'script'
+                            ? 'Try: Generate video ideas for me'
+                            : 'Try: What makes a strong YouTube hook?'}
+                        </p>
                       </div>
                     ) : (
                       scriptChatMessages.map((message) => {
-                        const suggestions = message.role === 'assistant' ? getChatSuggestions(message.content) : []
+                        const suggestions = chatMode === 'script' && message.role === 'assistant' ? getChatSuggestions(message.content) : []
+                        const assistantLabel = chatMode === 'script' ? 'Strategist' : 'Assistant'
                         return (
                           <article className={`strategy-message ${message.role}`} key={message.id}>
-                            <span>{message.role === 'assistant' ? 'Strategist' : 'You'}</span>
+                            <span>{message.role === 'assistant' ? assistantLabel : 'You'}</span>
                             {!suggestions.length && (
                               <div className="strategy-message-copy">
                                 {chatParagraphs(message.content).map((paragraph, index) => (
@@ -3624,8 +3697,8 @@ export function Home() {
                     )}
                     {scriptChatLoading && (
                       <article className="strategy-message assistant loading">
-                        <span>Strategist</span>
-                        <div className="premium-thinking" aria-label="Strategist is thinking">
+                        <span>{chatMode === 'script' ? 'Strategist' : 'Assistant'}</span>
+                        <div className="premium-thinking" aria-label="Assistant is thinking">
                           <i />
                           <i />
                           <i />
@@ -3646,7 +3719,11 @@ export function Home() {
                           void sendScriptChat()
                         }
                       }}
-                      placeholder="Describe the video idea, audience, tone, or a rough hook..."
+                      placeholder={
+                        chatMode === 'script'
+                          ? 'Describe the video idea, audience, tone, or a rough hook...'
+                          : 'Ask a question, brainstorm ideas, or say you want to write a video script...'
+                      }
                       rows={3}
                     />
                     <button className="icon-btn send-chat-btn" type="submit" disabled={!scriptChatInput.trim() || scriptChatLoading}>
@@ -3655,47 +3732,49 @@ export function Home() {
                   </form>
                 </div>
 
-                <aside className="panel glass-panel chat-script-preview">
-                  <h3>{selectedChatOutline ? 'Outline View' : 'Final Script Preview'}</h3>
-                  {selectedChatOutline ? (
-                    <div className="chat-outline-panel">
-                      <span className="chat-outline-kicker">Selected title</span>
-                      <h4>{selectedChatOutline.title}</h4>
-                      {[
-                        ['Hook', selectedChatOutline.hook],
-                        ['Structure', selectedChatOutline.structure],
-                        ['Retention moments', selectedChatOutline.retention],
-                        ['Tone', selectedChatOutline.tone],
-                        ['Payoff', selectedChatOutline.payoff],
-                      ].map(([label, value]) => (
-                        <article className="chat-outline-row" key={label}>
-                          <span>{label}</span>
-                          <p>{value}</p>
-                        </article>
-                      ))}
-                      <button
-                        className="btn primary large"
-                        onClick={generateFinalScriptFromChat}
-                        disabled={!scriptChatMessages.length || scriptChatLoading || chatScriptLoading}
-                      >
-                        {chatScriptLoading ? 'Generating...' : 'Generate Full Script'}
-                      </button>
-                    </div>
-                  ) : chatGeneratedScript ? (
-                    <div className="script-panel chat-final-script">
-                      <span className="chat-outline-kicker">Generated script</span>
-                      <h4>{chatGeneratedScript.script.title}</h4>
-                      {chatGeneratedScript.script.sections.map((section, index) => (
-                        <div key={`${section.section}-${index}`} className="outline-item script-reading-card">
-                          <h5>{section.section}</h5>
-                          <p>{section.text}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="muted-note">The polished script will appear here after the conversation has enough direction.</p>
-                  )}
-                </aside>
+                {chatMode === 'script' && (
+                  <aside className="panel glass-panel chat-script-preview">
+                    <h3>{selectedChatOutline ? 'Outline View' : 'Final Script Preview'}</h3>
+                    {selectedChatOutline ? (
+                      <div className="chat-outline-panel">
+                        <span className="chat-outline-kicker">Selected title</span>
+                        <h4>{selectedChatOutline.title}</h4>
+                        {[
+                          ['Hook', selectedChatOutline.hook],
+                          ['Structure', selectedChatOutline.structure],
+                          ['Retention moments', selectedChatOutline.retention],
+                          ['Tone', selectedChatOutline.tone],
+                          ['Payoff', selectedChatOutline.payoff],
+                        ].map(([label, value]) => (
+                          <article className="chat-outline-row" key={label}>
+                            <span>{label}</span>
+                            <p>{value}</p>
+                          </article>
+                        ))}
+                        <button
+                          className="btn primary large"
+                          onClick={generateFinalScriptFromChat}
+                          disabled={!scriptChatMessages.length || scriptChatLoading || chatScriptLoading}
+                        >
+                          {chatScriptLoading ? 'Generating...' : 'Generate Full Script'}
+                        </button>
+                      </div>
+                    ) : chatGeneratedScript ? (
+                      <div className="script-panel chat-final-script">
+                        <span className="chat-outline-kicker">Generated script</span>
+                        <h4>{chatGeneratedScript.script.title}</h4>
+                        {chatGeneratedScript.script.sections.map((section, index) => (
+                          <div key={`${section.section}-${index}`} className="outline-item script-reading-card">
+                            <h5>{section.section}</h5>
+                            <p>{section.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="muted-note">The polished script will appear here after the conversation has enough direction.</p>
+                    )}
+                  </aside>
+                )}
               </section>
             </section>
           )}
