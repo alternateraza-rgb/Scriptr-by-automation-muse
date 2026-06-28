@@ -7,4 +7,5 @@ export { WelcomeScreen } from './WelcomeScreen';
 export { SettingsDialog } from './SettingsDialog';
 export { TopBanner } from './TopBanner';
 export { YouTubeDescriptionGenerator } from './YouTubeDescriptionGenerator';
-export { YouTubeHashtagsGenerator } from './YouTubeHashtagsGenerator'; 
+export { YouTubeHashtagsGenerator } from './YouTubeHashtagsGenerator';
+export { Dashboard } from './Dashboard'; 

@@ -30,6 +30,7 @@ import {
   type ImportedYouTubeChannelStats,
 } from '../services/youtubeChannelService'
 import { Chat } from '../components/Chat'
+import { Dashboard } from '../components/Dashboard'
 import { YouTubeDescriptionGenerator } from '../components/YouTubeDescriptionGenerator'
 import { YouTubeHashtagsGenerator } from '../components/YouTubeHashtagsGenerator'
 import {
@@ -3172,31 +3173,12 @@ export function Home() {
 
         <div className="page-body">
           {activeNav === 'dashboard' && (
-            <section className="dashboard-page menu-transition-surface">
-              <header className="page-header">
-                <h1>Welcome back, {authUser?.name || 'Creator'}</h1>
-                <p>Channel profile summary only.</p>
-              </header>
-
-              <section className="panel glass-panel">
-                <h3>Channel Profile Summary</h3>
-                <p>
-                  <strong>{selectedProfile.channelName}</strong>
-                </p>
-                <p>{selectedProfile.description}</p>
-                <div className="tag-row">
-                  <span className="tag">{selectedProfile.niche}</span>
-                  <span className="tag">{selectedProfile.tone}</span>
-                  <span className="tag">{selectedProfile.frequency}</span>
-                </div>
-                <p>
-                  <strong>Audience:</strong> {selectedProfile.audience}
-                </p>
-                <button className="btn primary" onClick={() => setActiveNav('generate')}>
-                  Open Generate Journey
-                </button>
-              </section>
-            </section>
+            <Dashboard
+              userName={authUser?.name}
+              onOpenGenerate={() => setActiveNav('generate')}
+              onOpenChat={() => setActiveNav('chat')}
+              onOpenScripts={() => setActiveNav('scripts')}
+            />
           )}
 
           {activeNav === 'generate' && (
