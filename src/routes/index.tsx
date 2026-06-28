@@ -29,6 +29,7 @@ import {
   importYouTubeChannel,
   type ImportedYouTubeChannelStats,
 } from '../services/youtubeChannelService'
+import { Chat } from '../components/Chat'
 import { YouTubeDescriptionGenerator } from '../components/YouTubeDescriptionGenerator'
 import { YouTubeHashtagsGenerator } from '../components/YouTubeHashtagsGenerator'
 import {
@@ -3581,7 +3582,11 @@ export function Home() {
 
               <section className={`script-chat-layout ${selectedChatOutline || chatGeneratedScript ? 'script-mode' : 'general-mode'}`}>
                 <div className="panel glass-panel strategy-chat-panel">
-                  <div className="strategy-chat-thread">
+                  <Chat
+                    className="strategy-chat-thread"
+                    messages={scriptChatMessages}
+                    isLoading={scriptChatLoading}
+                  >
                     {!scriptChatMessages.length ? (
                       <div className="empty-state compact">
                         <MessageSquare className="empty-icon" />
@@ -3632,7 +3637,7 @@ export function Home() {
                         </div>
                       </article>
                     )}
-                  </div>
+                  </Chat>
 
                   {chatScriptError && <p className="error-text">{chatScriptError}</p>}
 

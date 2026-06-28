@@ -1,3 +1,4 @@
+export { Chat } from './Chat';
 export { ChatMessage } from './ChatMessage';
 export { LoadingIndicator } from './LoadingIndicator';
 export { ChatInput } from './ChatInput';
