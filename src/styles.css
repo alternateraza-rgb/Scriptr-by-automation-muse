@@ -1315,9 +1315,28 @@ label {
   bottom: 0.55rem;
 }
 
-.send-chat-btn svg {
+.stop-chat-btn {
+  position: absolute;
+  right: 0.55rem;
+  bottom: 0.55rem;
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.stop-chat-btn:hover {
+  background: rgba(239, 68, 68, 0.24);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.send-chat-btn svg,
+.stop-chat-btn svg {
   width: 1rem;
   height: 1rem;
+}
+
+.stop-generation-btn {
+  margin-top: 0.85rem;
 }
 
 .premium-thinking {

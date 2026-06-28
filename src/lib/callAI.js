@@ -51,8 +51,12 @@ const getErrorMessage = (res, parsed, text) => {
   return trimmed.slice(0, 240)
 }
 
-const requestFunction = async (endpoint, data) => {
+const requestFunction = async (endpoint, data, signal) => {
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+
     let res
     try {
       res = await fetch(`/.netlify/functions/${endpoint}`, {
@@ -62,8 +66,12 @@ const requestFunction = async (endpoint, data) => {
           Accept: 'application/json',
         },
         body: JSON.stringify(data),
+        signal,
       })
     } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw error
+      }
       if (attempt === 0) {
         continue
       }
@@ -99,12 +107,17 @@ const requestFunction = async (endpoint, data) => {
   return { routeUnavailable: true, data: null }
 }
 
-export async function callAI(endpoint, data = {}) {
+export async function callAI(endpoint, data = {}, options = {}) {
+  const { signal } = options
   const candidates = getEndpointCandidates(endpoint)
   let lastRouteUnavailable = false
 
   for (const candidate of candidates) {
-    const result = await requestFunction(candidate, data)
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+
+    const result = await requestFunction(candidate, data, signal)
     if (!result.routeUnavailable) {
       return result.data
     }

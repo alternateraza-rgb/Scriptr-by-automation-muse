@@ -52,6 +52,7 @@ import {
   Send,
   Settings2,
   Sparkles,
+  Square,
   Target,
   Wrench,
   X,
@@ -224,6 +225,10 @@ const INITIAL_SCRIPTS: SavedScript[] = []
 const ONBOARDING_TOTAL_STEPS = 11
 const DASHBOARD_PATH = '/dashboard'
 const SCRIPT_CHAT_STORAGE_KEY = 'scriptr.scriptChat.v1'
+
+const isAbortError = (error: unknown) =>
+  (error instanceof DOMException && error.name === 'AbortError') ||
+  (error instanceof Error && error.name === 'AbortError')
 const THEME_STORAGE_KEY = 'scriptr.theme.v1'
 
 const WORKFLOW_STEPS: Array<{ id: WorkflowStep; label: string }> = [
@@ -1038,6 +1043,8 @@ export function Home() {
   const [scriptChatInput, setScriptChatInput] = useState('')
   const [scriptChatLoading, setScriptChatLoading] = useState(false)
   const [chatScriptLoading, setChatScriptLoading] = useState(false)
+  const scriptChatAbortRef = useRef<AbortController | null>(null)
+  const chatScriptAbortRef = useRef<AbortController | null>(null)
   const [chatScriptError, setChatScriptError] = useState('')
   const [chatGeneratedScript, setChatGeneratedScript] = useState<GeneratedScript | null>(null)
   const [selectedChatOutline, setSelectedChatOutline] = useState<ChatOutlinePreview | null>(null)
@@ -1113,6 +1120,13 @@ export function Home() {
 
     window.localStorage.setItem(SCRIPT_CHAT_STORAGE_KEY, JSON.stringify(scriptChatMessages))
   }, [scriptChatMessages])
+
+  useEffect(() => {
+    return () => {
+      scriptChatAbortRef.current?.abort()
+      chatScriptAbortRef.current?.abort()
+    }
+  }, [])
 
   const primaryProfile = useMemo(
     () => profiles.find((profile) => profile.isDefault) || profiles[0] || buildPrimaryProfile(onboarding),
@@ -2289,22 +2303,44 @@ export function Home() {
     setScriptChatMessages(nextMessages)
     setScriptChatInput('')
     setChatScriptError('')
+    scriptChatAbortRef.current?.abort()
+    const controller = new AbortController()
+    scriptChatAbortRef.current = controller
     setScriptChatLoading(true)
 
     try {
-      const response = await sendScriptChatMessage({
-        messages: nextMessages,
-        channelContext,
-      })
+      const response = await sendScriptChatMessage(
+        {
+          messages: nextMessages,
+          channelContext,
+        },
+        { signal: controller.signal },
+      )
       setScriptChatMessages((current) => [
         ...current,
         { id: `assistant-${Date.now()}`, role: 'assistant', content: response.message },
       ])
     } catch (error) {
+      if (isAbortError(error)) {
+        openToast('Generation cancelled.')
+        return
+      }
       setChatScriptError(getErrorMessage(error, 'Chat failed.'))
     } finally {
+      if (scriptChatAbortRef.current === controller) {
+        scriptChatAbortRef.current = null
+      }
       setScriptChatLoading(false)
     }
+  }
+
+  const stopScriptChat = () => {
+    if (!scriptChatAbortRef.current) {
+      return
+    }
+
+    scriptChatAbortRef.current.abort()
+    setScriptChatLoading(false)
   }
 
   const generateFinalScriptFromChat = async () => {
@@ -2314,6 +2350,9 @@ export function Home() {
     }
 
     setChatScriptError('')
+    chatScriptAbortRef.current?.abort()
+    const controller = new AbortController()
+    chatScriptAbortRef.current = controller
     setChatScriptLoading(true)
     setActiveNav('scripts')
     try {
@@ -2327,22 +2366,47 @@ export function Home() {
             },
           ]
         : scriptChatMessages
-      const data = await requestChatScript({
-        messages: strategyMessages,
-        channelContext,
-      })
+      const data = await requestChatScript(
+        {
+          messages: strategyMessages,
+          channelContext,
+        },
+        { signal: controller.signal },
+      )
       setChatGeneratedScript(data)
       setScriptDraft(data)
       await upsertSavedScript(data, { notify: false })
       openToast('Final script generated from chat.')
     } catch (error) {
+      if (isAbortError(error)) {
+        openToast('Generation cancelled.')
+        return
+      }
       setChatScriptError(getErrorMessage(error, 'Unable to generate the final script.'))
     } finally {
+      if (chatScriptAbortRef.current === controller) {
+        chatScriptAbortRef.current = null
+      }
       setChatScriptLoading(false)
     }
   }
 
+  const stopChatScriptGeneration = () => {
+    if (!chatScriptAbortRef.current) {
+      return
+    }
+
+    chatScriptAbortRef.current.abort()
+    setChatScriptLoading(false)
+  }
+
   const resetScriptChat = () => {
+    scriptChatAbortRef.current?.abort()
+    scriptChatAbortRef.current = null
+    chatScriptAbortRef.current?.abort()
+    chatScriptAbortRef.current = null
+    setScriptChatLoading(false)
+    setChatScriptLoading(false)
     setScriptChatMessages([])
     setScriptChatInput('')
     setChatGeneratedScript(null)
@@ -3654,9 +3718,20 @@ export function Home() {
                       placeholder="Ask a question, brainstorm ideas, or describe a video script..."
                       rows={3}
                     />
-                    <button className="icon-btn send-chat-btn" type="submit" disabled={!scriptChatInput.trim() || scriptChatLoading}>
-                      <Send />
-                    </button>
+                    {scriptChatLoading ? (
+                      <button
+                        className="icon-btn stop-chat-btn"
+                        type="button"
+                        aria-label="Stop generation"
+                        onClick={stopScriptChat}
+                      >
+                        <Square />
+                      </button>
+                    ) : (
+                      <button className="icon-btn send-chat-btn" type="submit" disabled={!scriptChatInput.trim()}>
+                        <Send />
+                      </button>
+                    )}
                   </form>
                 </div>
 
@@ -3718,6 +3793,9 @@ export function Home() {
                     <span className="chat-outline-kicker">Script engine</span>
                     <h3>Building the full script from your strategy thread</h3>
                     <p>Turning the selected angle into a readable hook, body, retention beats, and final payoff.</p>
+                    <button className="btn secondary stop-generation-btn" type="button" onClick={stopChatScriptGeneration}>
+                      Stop
+                    </button>
                   </div>
                   <div className="cinema-loader" aria-hidden="true">
                     <span />
